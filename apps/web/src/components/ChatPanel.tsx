@@ -27,34 +27,13 @@ type StreamingBlockGroup =
   | { type: 'single'; block: StreamingBlock }
   | { type: 'tool_group'; blocks: StreamingBlock[] };
 
-// Check if a tool name is SpawnThread (should be rendered separately)
-function isSpawnThreadTool(name: string | undefined): boolean {
-  if (!name) return false;
-  // Handle MCP naming like mcp__mainthread__SpawnThread
-  const cleanName = name.includes('__') ? name.split('__').pop() || name : name;
-  return cleanName === 'SpawnThread';
-}
-
 // Group consecutive tool_use blocks together for accumulating display
-// SpawnThread tools always get their own single block (not grouped)
 function groupStreamingBlocks(blocks: StreamingBlock[]): StreamingBlockGroup[] {
   const groups: StreamingBlockGroup[] = [];
   let currentToolGroup: StreamingBlock[] = [];
 
   for (const block of blocks) {
-    // SpawnThread tools always get their own single block
-    if (block.type === 'tool_use' && isSpawnThreadTool(block.name)) {
-      // Flush any pending tool group first
-      if (currentToolGroup.length > 0) {
-        groups.push(
-          currentToolGroup.length === 1
-            ? { type: 'single', block: currentToolGroup[0] }
-            : { type: 'tool_group', blocks: currentToolGroup }
-        );
-        currentToolGroup = [];
-      }
-      groups.push({ type: 'single', block });
-    } else if (block.type === 'tool_use') {
+    if (block.type === 'tool_use') {
       currentToolGroup.push(block);
     } else {
       // Flush any pending tool group
@@ -266,8 +245,8 @@ export function ChatPanel() {
   const spawnedThreadIdSet = useMemo(() => new Set(Object.values(spawnedThreadIds || {})), [spawnedThreadIds]);
 
   const timelineItems = useMemo<TimelineItem[]>(() => {
-    // Filter out "thread created" notifications for threads spawned via SpawnThread
-    // (those are already shown inline via SpawnThreadBlock)
+    // Filter out "thread created" notifications for threads spawned via SpawnThread tool
+    // (those are already shown inline as tool calls)
     const filteredNotifications = currentThreadNotifications.filter(notif => {
       // Keep completion notifications (status: done/needs_attention)
       if (notif.status) return true;

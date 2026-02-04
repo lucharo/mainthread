@@ -4,7 +4,6 @@ import { useThreadStore } from '../store/threadStore';
 import { formatToolName } from '../utils/format';
 import { getToolPreview } from '../utils/toolPreviews';
 import { AssistantBlock } from './AssistantBlock';
-import { SpawnThreadBlock } from './SpawnThreadBlock';
 import type { ToolUse } from './ToolUseBlock';
 
 interface ToolHistoryBlockProps {

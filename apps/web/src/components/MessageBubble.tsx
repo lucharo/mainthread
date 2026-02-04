@@ -7,7 +7,6 @@ import type { Message, StreamingBlock } from '../store/threadStore';
 import { useThreadStore } from '../store/threadStore';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolHistoryBlock } from './ToolHistoryBlock';
-import { SpawnThreadBlock } from './SpawnThreadBlock';
 import { StreamingCursor } from './StreamingCursor';
 import { AssistantBlock } from './AssistantBlock';
 import { formatToolName, truncateContent } from '../utils/format';
@@ -38,6 +37,9 @@ function formatToolSummary(
       break;
     case 'WebFetch':
       summary = input.url ? String(input.url) : '';
+      break;
+    case 'SpawnThread':
+      summary = input.title ? String(input.title) : '';
       break;
     // Tools with no meaningful input to display
     case 'EnterPlanMode':
@@ -182,35 +184,16 @@ function ToolBlock({
   );
 }
 
-// Check if a tool name is SpawnThread (handles MCP naming)
-function isSpawnThreadTool(name: string | undefined): boolean {
-  if (!name) return false;
-  const cleanName = formatToolName(name);
-  return cleanName === 'SpawnThread';
-}
-
 // Type for grouped blocks
 type BlockGroup = { type: 'single'; block: StreamingBlock } | { type: 'tools'; blocks: StreamingBlock[] };
 
-// Helper to group consecutive tool_use blocks together (excluding SpawnThread which gets its own block)
+// Helper to group consecutive tool_use blocks together
 function groupConsecutiveBlocks(blocks: StreamingBlock[]): BlockGroup[] {
   const groups: BlockGroup[] = [];
   let currentToolGroup: StreamingBlock[] = [];
 
   for (const block of blocks) {
-    // SpawnThread tools always get their own single block
-    if (block.type === 'tool_use' && isSpawnThreadTool(block.name)) {
-      // Flush any pending tool group first
-      if (currentToolGroup.length > 0) {
-        if (currentToolGroup.length === 1) {
-          groups.push({ type: 'single', block: currentToolGroup[0] });
-        } else {
-          groups.push({ type: 'tools', blocks: currentToolGroup });
-        }
-        currentToolGroup = [];
-      }
-      groups.push({ type: 'single', block });
-    } else if (block.type === 'tool_use') {
+    if (block.type === 'tool_use') {
       currentToolGroup.push(block);
     } else {
       if (currentToolGroup.length > 0) {
@@ -238,24 +221,6 @@ function groupConsecutiveBlocks(blocks: StreamingBlock[]): BlockGroup[] {
 
 // Render a single persisted block
 function PersistedBlockRenderer({ block }: { block: StreamingBlock }) {
-  // Only subscribe to threads/spawnedThreadIds for SpawnThread blocks to avoid unnecessary re-renders
-  const isSpawnThread = block.type === 'tool_use' && isSpawnThreadTool(block.name);
-  const threads = useThreadStore((state) => (isSpawnThread ? state.threads : []));
-  const spawnedThreadIds = useThreadStore((state) => (isSpawnThread ? state.spawnedThreadIds : {}));
-
-  // For SpawnThread, find the thread - prefer spawned ID mapping, fallback to title
-  const findSpawnedThread = (toolUseId: string | undefined, title: string) => {
-    // First try the reliable spawned thread ID mapping
-    if (toolUseId && spawnedThreadIds[toolUseId]) {
-      const threadId = spawnedThreadIds[toolUseId];
-      const thread = threads.find((t) => t.id === threadId);
-      return thread ? { id: thread.id, status: thread.status } : { id: threadId, status: undefined };
-    }
-    // Fallback to title-based lookup (for older messages before this feature)
-    const thread = threads.find((t) => t.title === title);
-    return thread ? { id: thread.id, status: thread.status } : null;
-  };
-
   switch (block.type) {
     case 'text':
       return block.content ? (
@@ -270,19 +235,6 @@ function PersistedBlockRenderer({ block }: { block: StreamingBlock }) {
     case 'thinking':
       return block.content ? <ThinkingBlock content={block.content} isStreaming={false} /> : null;
     case 'tool_use':
-      // Special handling for SpawnThread tool
-      if (isSpawnThreadTool(block.name)) {
-        const title = block.input?.title ? String(block.input.title) : 'Untitled Thread';
-        const foundThread = findSpawnedThread(block.id, title);
-        return (
-          <SpawnThreadBlock
-            title={title}
-            threadId={foundThread?.id}
-            threadStatus={foundThread?.status}
-            isStreaming={!block.isComplete}
-          />
-        );
-      }
       return (
         <ToolBlock
           name={block.name}
@@ -403,7 +355,6 @@ export function StreamingToolBlock({
   name,
   input,
   isComplete,
-  toolUseId,
   isCollapsed,
   isError,
   submittedAnswers,
@@ -416,36 +367,6 @@ export function StreamingToolBlock({
   isError?: boolean;
   submittedAnswers?: Record<string, string>;
 }) {
-  // Only subscribe to threads/spawnedThreadIds for SpawnThread to avoid unnecessary re-renders
-  const isSpawnThread = isSpawnThreadTool(name);
-  const threads = useThreadStore((state) => (isSpawnThread ? state.threads : []));
-  const spawnedThreadIds = useThreadStore((state) => (isSpawnThread ? state.spawnedThreadIds : {}));
-
-  // Special handling for SpawnThread tool during streaming
-  if (isSpawnThread) {
-    const title = input?.title ? String(input.title) : 'Untitled Thread';
-    // Prefer spawned ID mapping (from tool_result), fallback to title lookup
-    let threadId: string | undefined;
-    let threadStatus;
-    if (toolUseId && spawnedThreadIds[toolUseId]) {
-      threadId = spawnedThreadIds[toolUseId];
-      const thread = threads.find((t) => t.id === threadId);
-      threadStatus = thread?.status;
-    } else {
-      const thread = threads.find((t) => t.title === title);
-      threadId = thread?.id;
-      threadStatus = thread?.status;
-    }
-    return (
-      <SpawnThreadBlock
-        title={title}
-        threadId={threadId}
-        threadStatus={threadStatus}
-        isStreaming={!isComplete}
-      />
-    );
-  }
-
   // AskUserQuestion: Show submitted answers or collapse while waiting
   if (name === 'AskUserQuestion') {
     // Format answers for display after submission
