@@ -1777,15 +1777,20 @@ async def update_config(thread_id: str, request: UpdateConfigRequest) -> dict[st
         auto_react=request.autoReact,
     )
 
-    # Notify subscribers of config change
+    # Notify subscribers of config change - only include fields that were actually set
+    config_data: dict[str, Any] = {}
+    if request.model is not None:
+        config_data["model"] = request.model
+    if request.extendedThinking is not None:
+        config_data["extendedThinking"] = request.extendedThinking
+    if request.permissionMode is not None:
+        config_data["permissionMode"] = request.permissionMode
+    if request.autoReact is not None:
+        config_data["autoReact"] = request.autoReact
+
     await broadcast_to_thread(thread_id, {
         "type": "config_change",
-        "data": {
-            "model": request.model,
-            "extendedThinking": request.extendedThinking,
-            "permissionMode": request.permissionMode,
-            "autoReact": request.autoReact,
-        },
+        "data": config_data,
     })
 
     return {"success": True}
