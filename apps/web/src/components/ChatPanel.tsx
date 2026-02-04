@@ -417,17 +417,6 @@ export function ChatPanel() {
     }
   }, [activeThreadId, stopThread]);
 
-  const handleAutoReactToggle = useCallback(
-    async (enabled: boolean) => {
-      if (!activeThread) return;
-      try {
-        await updateThreadConfig(activeThread.id, { autoReact: enabled });
-      } catch (err) {
-        setLocalError(err instanceof Error ? err.message : 'Failed to update auto-react setting');
-      }
-    },
-    [activeThread, updateThreadConfig]
-  );
 
   const displayError = localError || error;
 
@@ -626,7 +615,6 @@ export function ChatPanel() {
           onPermissionModeChange={handlePermissionModeChange}
           onThinkingToggle={handleThinkingToggle}
           onStopThread={handleStopThread}
-          onAutoReactToggle={handleAutoReactToggle}
           onError={setLocalError}
         />
       )}

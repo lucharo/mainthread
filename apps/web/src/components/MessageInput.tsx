@@ -37,7 +37,6 @@ interface MessageInputProps {
   onPermissionModeChange: (mode: PermissionMode) => Promise<void>;
   onThinkingToggle: (enabled: boolean) => Promise<void>;
   onStopThread: () => void;
-  onAutoReactToggle: (enabled: boolean) => void;
   onError: (message: string) => void;
 }
 
@@ -50,7 +49,6 @@ export function MessageInput({
   onPermissionModeChange,
   onThinkingToggle,
   onStopThread,
-  onAutoReactToggle,
   onError,
 }: MessageInputProps) {
   const [input, setInput] = useState('');

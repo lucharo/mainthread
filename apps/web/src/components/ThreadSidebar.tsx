@@ -145,16 +145,6 @@ export function ThreadSidebar() {
     }
   };
 
-  const handleResumeThread = async (threadId: string) => {
-    setError(null);
-    try {
-      // Send empty message to resume/continue the thread
-      await sendMessage(threadId, '');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to resume thread';
-      setError(message);
-    }
-  };
 
   const handleResetAll = async () => {
     setShowResetConfirm(false);
@@ -215,7 +205,6 @@ export function ThreadSidebar() {
             onSelectSub={setActiveThread}
             onArchive={handleArchive}
             onStop={handleStopThread}
-            onResume={handleResumeThread}
             onRename={handleRenameThread}
             isExpanded={expandedThreads.has(thread.id)}
             onToggleExpand={handleToggleExpand}
@@ -316,7 +305,6 @@ interface ThreadItemProps {
   onSelectSub: (id: string) => void;
   onArchive: (threadId: string) => void;
   onStop: (threadId: string) => void;
-  onResume: (threadId: string) => void;
   onRename: (threadId: string, newTitle: string) => Promise<void>;
   isExpanded: boolean;
   onToggleExpand: (threadId: string) => void;
@@ -331,7 +319,6 @@ function ThreadItem({
   onSelectSub,
   onArchive,
   onStop,
-  onResume,
   onRename,
   isExpanded,
   onToggleExpand,
@@ -509,7 +496,6 @@ function ThreadItem({
           activeThreadId={activeThreadId}
           onSelectSub={onSelectSub}
           onStop={onStop}
-          onResume={onResume}
           onArchive={onArchive}
           onRename={onRename}
         />
@@ -526,7 +512,6 @@ interface ScrollableSubThreadsProps {
   activeThreadId: string | null;
   onSelectSub: (id: string) => void;
   onStop: (threadId: string) => void;
-  onResume: (threadId: string) => void;
   onArchive: (threadId: string) => void;
   onRename: (threadId: string, newTitle: string) => Promise<void>;
 }
@@ -536,7 +521,6 @@ function ScrollableSubThreads({
   activeThreadId,
   onSelectSub,
   onStop,
-  onResume,
   onArchive,
   onRename,
 }: ScrollableSubThreadsProps) {
@@ -595,7 +579,6 @@ function ScrollableSubThreads({
             isActive={sub.id === activeThreadId}
             onSelect={() => onSelectSub(sub.id)}
             onStop={onStop}
-            onResume={onResume}
             onArchive={onArchive}
             onRename={onRename}
           />
@@ -626,12 +609,11 @@ interface SubThreadItemProps {
   isActive: boolean;
   onSelect: () => void;
   onStop: (threadId: string) => void;
-  onResume: (threadId: string) => void;
   onArchive: (threadId: string) => void;
   onRename: (threadId: string, newTitle: string) => Promise<void>;
 }
 
-function SubThreadItem({ sub, isActive, onSelect, onStop, onResume, onArchive, onRename }: SubThreadItemProps) {
+function SubThreadItem({ sub, isActive, onSelect, onStop, onArchive, onRename }: SubThreadItemProps) {
   const subStatusConfig = STATUS_COLORS[sub.status];
   const subModelBadge = MODEL_BADGES[sub.model] || DEFAULT_BADGE;
 
