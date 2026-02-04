@@ -166,7 +166,7 @@ Working directory: {thread['workDir']}
 When asked about the current project or "what to work on", examine:
 1. **Git status** - uncommitted changes, current branch, recent commits
 2. **Project files** - README, package.json/pyproject.toml, TODO files
-3. **Issue trackers** - bd/beads issues, GitHub issues if available
+3. **Issue trackers** - GitHub issues, TODO.md, or any issue files in the project
 4. **Recent activity** - recently modified files indicate active work areas
 
 Use Task(subagent_type="Explore") to quickly gather project context before answering.

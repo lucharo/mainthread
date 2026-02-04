@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 const WELCOME_SHOWN_KEY = 'mainthread_welcome_shown';
 
@@ -6,22 +6,46 @@ export function WelcomeModal() {
   const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
-    // Check if welcome has been shown before
-    const hasSeenWelcome = localStorage.getItem(WELCOME_SHOWN_KEY);
-    if (!hasSeenWelcome) {
+    // Check if welcome has been shown before (with error handling for private browsing)
+    try {
+      const hasSeenWelcome = localStorage.getItem(WELCOME_SHOWN_KEY);
+      if (!hasSeenWelcome) {
+        setIsOpen(true);
+      }
+    } catch {
+      // Show welcome if localStorage unavailable
       setIsOpen(true);
     }
   }, []);
 
-  const handleClose = () => {
-    localStorage.setItem(WELCOME_SHOWN_KEY, 'true');
+  const handleClose = useCallback(() => {
+    try {
+      localStorage.setItem(WELCOME_SHOWN_KEY, 'true');
+    } catch {
+      // Ignore localStorage errors
+    }
     setIsOpen(false);
-  };
+  }, []);
+
+  // Handle Escape key to close
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleClose();
+    };
+    document.addEventListener('keydown', handleEsc);
+    return () => document.removeEventListener('keydown', handleEsc);
+  }, [isOpen, handleClose]);
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm">
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="welcome-title"
+    >
       <div className="bg-background border border-border rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden animate-in fade-in zoom-in-95 duration-300">
         {/* Header with gradient */}
         <div className="relative px-8 pt-10 pb-6 bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 text-white">
@@ -33,7 +57,7 @@ export function WelcomeModal() {
                       d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
             </div>
-            <h1 className="text-2xl font-bold">Welcome to MainThread</h1>
+            <h1 id="welcome-title" className="text-2xl font-bold">Welcome to MainThread</h1>
             <p className="text-blue-100 mt-1">Multi-threaded AI conversations</p>
           </div>
         </div>
@@ -88,8 +112,10 @@ export function WelcomeModal() {
         <div className="px-8 pb-8">
           <button
             onClick={handleClose}
+            autoFocus
             className="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700
-                       text-white font-medium rounded-xl transition-all shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40"
+                       text-white font-medium rounded-xl transition-all shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40
+                       focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
           >
             Get Started
           </button>
