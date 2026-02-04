@@ -25,9 +25,12 @@ serve-port port="2026":
 dev-frontend:
     cd apps/web && bun run dev
 
-# Run both backend and frontend in parallel
+# Run both backend and frontend in parallel (with cleanup on exit)
 dev:
-    just serve & just dev-frontend
+    #!/usr/bin/env bash
+    trap 'kill $(jobs -p) 2>/dev/null' EXIT
+    just serve &
+    just dev-frontend
 
 # Build frontend (outputs to src/mainthread/static/)
 build-frontend:
@@ -61,7 +64,7 @@ lint-fix:
 
 # Reset database (delete mainthread.db)
 reset-db:
-    rip mainthread.db 2>/dev/null || echo "No database to delete"
+    rm -f mainthread.db
     @echo "Database reset complete"
 
 # Show command to reset welcome modal (run in browser console)
@@ -93,9 +96,7 @@ publish-test: build
 
 # Clean build artifacts
 clean:
-    rip dist/ 2>/dev/null || true
-    rip build/ 2>/dev/null || true
-    rip *.egg-info 2>/dev/null || true
+    rm -rf dist/ build/ *.egg-info
     @echo "Build artifacts cleaned"
 
 # =============================================================================
@@ -109,5 +110,9 @@ build-all: build-frontend build
 check: test lint build-frontend build
     @echo "All checks passed!"
 
-# Fresh start: reset db, build frontend, start server
-fresh: reset-db build-frontend serve
+# Fresh environment: reset db and build frontend
+fresh: reset-db build-frontend
+    @echo "Fresh environment ready. Run 'just serve' to start."
+
+# Fresh start: reset db, build frontend, and start server
+fresh-start: reset-db build-frontend serve
