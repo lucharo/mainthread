@@ -181,6 +181,7 @@ export function ChatPanel() {
   const pendingPlanApproval = useThreadStore((state) => state.pendingPlanApproval);
   const handlePlanAction = useThreadStore((state) => state.handlePlanAction);
   const threadNotifications = useThreadStore((state) => state.threadNotifications);
+  const spawnedThreadIds = useThreadStore((state) => state.spawnedThreadIds);
   const error = useThreadStore((state) => state.error);
 
   // Actions don't cause re-renders, safe to group
@@ -261,21 +262,33 @@ export function ChatPanel() {
     | { type: 'message'; data: Message; timestamp: string }
     | { type: 'notification'; data: ThreadNotification; timestamp: string };
 
+  // Get set of thread IDs spawned via SpawnThread tool (to avoid duplicate notifications)
+  const spawnedThreadIdSet = useMemo(() => new Set(Object.values(spawnedThreadIds)), [spawnedThreadIds]);
+
   const timelineItems = useMemo<TimelineItem[]>(() => {
+    // Filter out "thread created" notifications for threads spawned via SpawnThread
+    // (those are already shown inline via SpawnThreadBlock)
+    const filteredNotifications = currentThreadNotifications.filter(notif => {
+      // Keep completion notifications (status: done/needs_attention)
+      if (notif.status) return true;
+      // Filter out creation notifications for SpawnThread-created threads
+      return !spawnedThreadIdSet.has(notif.threadId);
+    });
+
     const items: TimelineItem[] = [
       ...messages.map((msg) => ({
         type: 'message' as const,
         data: msg,
         timestamp: msg.timestamp,
       })),
-      ...currentThreadNotifications.map((notif) => ({
+      ...filteredNotifications.map((notif) => ({
         type: 'notification' as const,
         data: notif,
         timestamp: notif.timestamp,
       })),
     ];
     return items.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  }, [messages, currentThreadNotifications]);
+  }, [messages, currentThreadNotifications, spawnedThreadIdSet]);
 
   // Smart auto-scroll
   useEffect(() => {
