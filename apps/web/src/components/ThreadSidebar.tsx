@@ -91,6 +91,8 @@ export function ThreadSidebar() {
   const [error, setError] = useState<string | null>(null);
   // Track expanded threads in React state (not module-level) to trigger proper re-renders
   const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
+  // Track previous child counts to detect first subthread creation
+  const prevChildCountsRef = useRef<Map<string, number>>(new Map());
 
   // Memoize thread groupings - separate active and archived (including sub-threads)
   const { mainThreads, archivedMainThreads, archivedSubThreads, subThreadsByParent, totalArchivedCount } = useMemo(() => {
@@ -115,6 +117,37 @@ export function ThreadSidebar() {
       totalArchivedCount: archivedMains.length + archivedSubs.length,
     };
   }, [threads]);
+
+  // Auto-expand parent threads when their first subthread is created
+  useEffect(() => {
+    const newExpandedThreads = new Set<string>();
+
+    subThreadsByParent.forEach((children, parentId) => {
+      const prevCount = prevChildCountsRef.current.get(parentId) || 0;
+      const currentCount = children.length;
+
+      // Auto-expand when going from 0 children to 1+ children
+      if (prevCount === 0 && currentCount > 0) {
+        newExpandedThreads.add(parentId);
+      }
+    });
+
+    // Update expanded state if any new threads need to be expanded
+    if (newExpandedThreads.size > 0) {
+      setExpandedThreads((prev) => {
+        const next = new Set(prev);
+        newExpandedThreads.forEach((id) => next.add(id));
+        return next;
+      });
+    }
+
+    // Update the ref with current counts for next comparison
+    const newCounts = new Map<string, number>();
+    subThreadsByParent.forEach((children, parentId) => {
+      newCounts.set(parentId, children.length);
+    });
+    prevChildCountsRef.current = newCounts;
+  }, [subThreadsByParent]);
 
   const handleCreateMain = async (options: { title: string; workDir?: string; model?: ModelType; extendedThinking?: boolean }) => {
     closeCreateModal();

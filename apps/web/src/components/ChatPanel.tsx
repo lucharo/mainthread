@@ -20,6 +20,7 @@ import { ThreadHeader } from './ThreadHeader';
 import { MessageInput } from './MessageInput';
 import { MessageBubble, StreamingMessage, StreamingToolBlock } from './MessageBubble';
 import { PlanApprovalBlock } from './PlanApprovalBlock';
+import { ProcessingBlock } from './ProcessingBlock';
 import { ToolHistoryBlock } from './ToolHistoryBlock';
 
 // Type for grouped streaming blocks
@@ -179,6 +180,8 @@ export function ChatPanel() {
   const [showSpawnModal, setShowSpawnModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [showProcessingIndicator, setShowProcessingIndicator] = useState(false);
+  const processingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Track if user is at bottom for smart auto-scroll
@@ -225,6 +228,33 @@ export function ChatPanel() {
     () => (activeThreadId ? expandedStreamingBlockId[activeThreadId] || null : null),
     [activeThreadId, expandedStreamingBlockId]
   );
+
+  // Minimum display time for ProcessingBlock (400ms) to ensure visibility
+  const shouldShowProcessing = activeThread?.status === 'pending' && currentStreamingBlocks.length === 0;
+
+  useEffect(() => {
+    if (shouldShowProcessing) {
+      // Show immediately when conditions are met
+      setShowProcessingIndicator(true);
+      // Clear any pending hide timer
+      if (processingTimerRef.current) {
+        clearTimeout(processingTimerRef.current);
+        processingTimerRef.current = null;
+      }
+    } else if (showProcessingIndicator) {
+      // Delay hiding by minimum display time
+      processingTimerRef.current = setTimeout(() => {
+        setShowProcessingIndicator(false);
+        processingTimerRef.current = null;
+      }, 400);
+    }
+
+    return () => {
+      if (processingTimerRef.current) {
+        clearTimeout(processingTimerRef.current);
+      }
+    };
+  }, [shouldShowProcessing, showProcessingIndicator]);
 
   const handleToggleStreamingBlock = useCallback(
     (blockId: string) => {
@@ -521,25 +551,9 @@ export function ChatPanel() {
           }
         })}
 
-        {/* Processing indicator */}
-        {activeThread?.status === 'pending' && currentStreamingBlocks.length === 0 && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground px-4 py-2">
-            <span className="inline-flex gap-1">
-              <span
-                className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"
-                style={{ animationDelay: '0ms' }}
-              />
-              <span
-                className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"
-                style={{ animationDelay: '150ms' }}
-              />
-              <span
-                className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"
-                style={{ animationDelay: '300ms' }}
-              />
-            </span>
-            <span className="animate-pulse">Processing...</span>
-          </div>
+        {/* Processing indicator - with minimum display time for visibility */}
+        {showProcessingIndicator && (
+          <ProcessingBlock />
         )}
 
         {/* Inline question block */}
