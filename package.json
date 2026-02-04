@@ -1,0 +1,23 @@
+{
+  "name": "mainthread",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm dev:web",
+    "dev:web": "pnpm --filter web dev",
+    "dev:api": "cd apps/api && uv run uvicorn main:app --reload --port 3001",
+    "build": "pnpm --filter web build",
+    "clean": "pnpm -r exec rm -rf node_modules dist .turbo",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.3.11",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18",
+    "pnpm": ">=8"
+  }
+}

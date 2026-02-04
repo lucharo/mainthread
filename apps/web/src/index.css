@@ -1,0 +1,134 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 9%;  /* Near black for maximum readability */
+  --border: 214 32% 91%;
+  --primary: 221 83% 53%;
+  --primary-foreground: 0 0% 100%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 0 0% 40%;  /* Dark grey for secondary text */
+
+  /* Thinking - Amber/Gold (warm, distinctive) */
+  --thinking: 45 93% 47%;
+  --thinking-foreground: 45 80% 25%;
+  --thinking-border: 45 70% 75%;
+
+  /* Tool Use - Emerald */
+  --tool-use: 160 84% 39%;
+  --tool-use-foreground: 160 84% 98%;
+
+  /* Tool Result - Emerald variant */
+  --tool-result: 160 60% 45%;
+
+  /* System - Blue */
+  --system: 217 91% 60%;
+
+  /* Error/Success */
+  --error: 0 84% 60%;
+  --success: 142 76% 36%;
+}
+
+.dark {
+  --background: 220 13% 13%;        /* Dark grey, slight blue tint */
+  --foreground: 220 10% 90%;        /* Soft white */
+  --border: 220 10% 22%;            /* Subtle border */
+  --primary: 220 70% 55%;           /* Soft blue */
+  --primary-foreground: 220 10% 98%;
+  --muted: 220 10% 18%;             /* Slightly lighter grey */
+  --muted-foreground: 220 10% 60%;
+
+  /* Thinking - Amber/Gold (dark mode) */
+  --thinking: 45 70% 50%;
+  --thinking-foreground: 45 50% 80%;
+  --thinking-border: 45 30% 28%;
+
+  /* Tool Use - Emerald (dark mode) */
+  --tool-use: 160 60% 42%;
+  --tool-use-foreground: 160 60% 92%;
+
+  /* Tool Result - Emerald variant (dark mode) */
+  --tool-result: 160 45% 48%;
+
+  /* System - Blue (dark mode) */
+  --system: 220 75% 60%;
+
+  /* Error/Success (dark mode) */
+  --error: 0 65% 52%;
+  --success: 142 55% 42%;
+}
+
+body {
+  @apply bg-background text-foreground;
+}
+
+/* Message bubble styles */
+.message-bubble {
+  @apply shadow-sm hover:shadow-md transition-shadow duration-200;
+}
+
+.message-bubble-user {
+  @apply bg-gradient-to-br from-primary to-primary/90;
+}
+
+.message-bubble-assistant {
+  @apply bg-gradient-to-br from-muted to-muted/80 text-foreground;
+}
+
+/* Streaming cursor */
+.streaming-cursor {
+  @apply inline-block w-0.5 h-4 bg-primary/70;
+}
+
+/* Thinking block styles */
+.thinking-block {
+  @apply border-l-4;
+  border-left-color: hsl(var(--thinking));
+}
+
+.thinking-header {
+  @apply flex items-center gap-2 px-3 py-2 transition-colors cursor-pointer;
+}
+
+.thinking-content {
+  @apply px-4 py-3 text-sm italic;
+}
+
+/* Code block styles in messages */
+.message-bubble pre {
+  @apply bg-background/50 border border-border rounded-md p-3 my-2 text-sm overflow-x-auto ml-0;
+}
+
+.message-bubble code {
+  @apply bg-background/50 px-1.5 py-0.5 rounded text-sm;
+}
+
+.message-bubble pre code {
+  @apply bg-transparent p-0;
+}
+
+/* Blockquote styles */
+.message-bubble blockquote {
+  @apply border-l-4 border-primary/30 pl-4 my-2 italic text-muted-foreground;
+}
+
+/* Neon pink-orange blink animation for processing indicators (4Hz = 0.25s) */
+@keyframes neon-blink {
+  0%, 100% {
+    opacity: 1;
+    background-color: #FF2D7A;
+    box-shadow: 0 0 10px #FF2D7A, 0 0 20px #FF2D7A, 0 0 30px #FF2D7A;
+  }
+  50% {
+    opacity: 0.1;
+    background-color: #FF2D7A;
+    box-shadow: none;
+  }
+}
+
+.animate-neon-blink {
+  animation: neon-blink 1s ease-in-out infinite;
+  background-color: #FF2D7A !important;
+}

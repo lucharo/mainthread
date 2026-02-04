@@ -1,0 +1,95 @@
+"""SpawnThread tool for creating sub-threads."""
+
+import asyncio
+from typing import Any
+
+from claude_agent_sdk import tool
+
+from mainthread.agents.registry import get_registry
+
+
+def create_spawn_thread_tool(parent_thread_id: str, parent_permission_mode: str | None = None):
+    """Create the SpawnThread tool for a specific parent thread.
+
+    Args:
+        parent_thread_id: ID of the parent thread that will spawn sub-threads
+        parent_permission_mode: Permission mode of the parent thread to inherit
+    """
+
+    @tool(
+        "SpawnThread",
+        "Create a new sub-thread for a specific task. Use this to delegate work to a separate agent context. "
+        "If initial_message is provided, the sub-thread will start processing immediately. "
+        "IMPORTANT: Sub-threads automatically notify the parent when they complete (status='done') or need attention "
+        "(status='needs_attention'). You do NOT need to poll or repeatedly check sub-thread status - just continue "
+        "other work and you will be notified when the sub-thread finishes.",
+        {"title": str, "work_dir": str, "initial_message": str},
+    )
+    async def spawn_thread(args: dict[str, Any]) -> dict[str, Any]:
+        registry = get_registry()
+
+        if not registry.create_thread:
+            return {
+                "content": [{"type": "text", "text": "Error: Thread creation not available"}],
+                "is_error": True,
+            }
+
+        try:
+            new_thread = await registry.create_thread(
+                title=args["title"],
+                parent_id=parent_thread_id,
+                work_dir=args.get("work_dir"),
+                permission_mode=parent_permission_mode,
+            )
+
+            # Build worktree status message
+            worktree_info = new_thread.get("_worktree_info", {})
+            worktree_msg = ""
+            if worktree_info.get("success"):
+                branch = new_thread.get("worktreeBranch", "unknown")
+                worktree_msg = f" Created in isolated worktree on branch `{branch}`."
+            elif worktree_info.get("error"):
+                worktree_msg = f" (Worktree creation skipped: {worktree_info['error']})"
+
+            initial_message = args.get("initial_message")
+            if initial_message and registry.run_thread:
+                # Fire-and-forget: start the sub-thread in background
+                # Delay allows frontend time to subscribe to SSE
+                async def delayed_run():
+                    await asyncio.sleep(0.5)
+                    await registry.run_thread(new_thread["id"], initial_message)
+
+                asyncio.create_task(delayed_run())
+                # Include thread_id in JSON format at end of text for server to parse
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"Created and started sub-thread '{args['title']}' (ID: {new_thread['id']}).{worktree_msg} "
+                            f"Initial message: \"{initial_message[:100]}{'...' if len(initial_message) > 100 else ''}\". "
+                            f"The sub-thread is now running in parallel and will notify you when complete or blocked."
+                            f"\n<!--SPAWN_DATA:{new_thread['id']}-->",
+                        }
+                    ],
+                }
+
+            # Include thread_id in JSON format at end of text for server to parse
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"Created sub-thread '{args['title']}' (ID: {new_thread['id']}).{worktree_msg} "
+                        f"The sub-thread is ready but not started. Open the thread to interact with it, "
+                        f"or use SpawnThread with initial_message to start it immediately. "
+                        f"You will be notified automatically when the sub-thread completes or needs attention."
+                        f"\n<!--SPAWN_DATA:{new_thread['id']}-->",
+                    }
+                ],
+            }
+        except Exception as e:
+            return {
+                "content": [{"type": "text", "text": f"Failed to create thread: {e}"}],
+                "is_error": True,
+            }
+
+    return spawn_thread

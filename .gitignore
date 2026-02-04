@@ -1,0 +1,47 @@
+# Dependencies
+node_modules
+.venv
+__pycache__
+*.egg-info
+
+# Build outputs
+dist
+.turbo
+*.log
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Test artifacts
+.pytest_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# Ralph working files
+.call_count
+.circuit_breaker_*
+.exit_signals
+.last_reset
+.ralph_session*
+.response_analysis
+progress.json
+
+# Generated test files
+hello.txt
+test.txt
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.bak

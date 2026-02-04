@@ -1,0 +1,77 @@
+[project]
+name = "mainthread"
+version = "0.1.0"
+description = "Multi-threaded Claude conversations with a web UI"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Luis Chaves" }]
+keywords = ["claude", "ai", "llm", "agent", "chat"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "sse-starlette>=2.1.0",
+    "pydantic>=2.9.0",
+    "python-dotenv>=1.0.0",
+    "typer>=0.12.0",
+    "claude-agent-sdk>=0.1.20",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "mypy>=1.13.0",
+    "ruff>=0.7.0",
+]
+
+[project.scripts]
+mainthread = "mainthread.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/mainthread"
+Repository = "https://github.com/yourusername/mainthread"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mainthread"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/README.md",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
