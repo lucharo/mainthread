@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, type KeyboardEvent } from 'react';
 import { type AgentQuestion } from '../store/threadStore';
 
 interface InlineQuestionBlockProps {
@@ -14,17 +14,21 @@ export function InlineQuestionBlock({ questions, onAnswer, onCancel }: InlineQue
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [focusedOption, setFocusedOption] = useState(0);
   const optionRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
-  const customInputRef = useRef<HTMLInputElement>(null);
+
+  // Guard against empty questions array
+  if (questions.length === 0) {
+    return null;
+  }
 
   const currentQuestion = questions[currentQuestionIndex];
   const isLastQuestion = currentQuestionIndex === questions.length - 1;
 
-  // Check if current question is answered
-  const isCurrentAnswered = () => {
+  // Check if current question is answered (memoized)
+  const isCurrentAnswered = useMemo(() => {
     const selected = answers[currentQuestion.question] || [];
     const custom = customInputs[currentQuestion.question];
     return selected.length > 0 || !!custom;
-  };
+  }, [answers, customInputs, currentQuestion.question]);
 
   const handleOptionSelect = (optionLabel: string) => {
     const q = currentQuestion;
@@ -92,7 +96,7 @@ export function InlineQuestionBlock({ questions, onAnswer, onCancel }: InlineQue
   };
 
   const handleNext = () => {
-    if (!isLastQuestion && isCurrentAnswered()) {
+    if (!isLastQuestion && isCurrentAnswered) {
       setCurrentQuestionIndex((prev) => prev + 1);
       setFocusedOption(0);
     }
@@ -136,7 +140,7 @@ export function InlineQuestionBlock({ questions, onAnswer, onCancel }: InlineQue
           handleOptionSelect(currentQuestion.options[optIdx].label);
           break;
         case 'ArrowRight':
-          if (!currentQuestion.multiSelect && isCurrentAnswered() && !isLastQuestion) {
+          if (!currentQuestion.multiSelect && isCurrentAnswered && !isLastQuestion) {
             e.preventDefault();
             handleNext();
           }
@@ -174,14 +178,24 @@ export function InlineQuestionBlock({ questions, onAnswer, onCancel }: InlineQue
                 </span>
               </div>
               {questions.length > 1 && (
-                <span className="text-xs text-amber-600 dark:text-amber-400">
+                <span
+                  className="text-xs text-amber-600 dark:text-amber-400"
+                  aria-label={`Question ${currentQuestionIndex + 1} of ${questions.length}`}
+                >
                   {currentQuestionIndex + 1} / {questions.length}
                 </span>
               )}
             </div>
             {/* Progress bar */}
             {questions.length > 1 && (
-              <div className="mt-2 h-1 bg-amber-200 dark:bg-amber-800 rounded-full overflow-hidden">
+              <div
+                className="mt-2 h-1 bg-amber-200 dark:bg-amber-800 rounded-full overflow-hidden"
+                role="progressbar"
+                aria-valuenow={currentQuestionIndex + 1}
+                aria-valuemin={1}
+                aria-valuemax={questions.length}
+                aria-label="Question progress"
+              >
                 <div
                   className="h-full bg-amber-500 transition-all duration-300"
                   style={{ width: `${((currentQuestionIndex + 1) / questions.length) * 100}%` }}
@@ -249,9 +263,9 @@ export function InlineQuestionBlock({ questions, onAnswer, onCancel }: InlineQue
               {/* Custom input */}
               <div className="pt-2">
                 <input
-                  ref={customInputRef}
                   type="text"
                   placeholder="Or type a custom answer..."
+                  aria-label="Custom answer"
                   value={customInputs[currentQuestion.question] || ''}
                   onChange={(e) => {
                     setCustomInputs((prev) => ({ ...prev, [currentQuestion.question]: e.target.value }));
@@ -291,7 +305,7 @@ export function InlineQuestionBlock({ questions, onAnswer, onCancel }: InlineQue
               {currentQuestion.multiSelect && !isLastQuestion && (
                 <button
                   onClick={handleNext}
-                  disabled={!isCurrentAnswered()}
+                  disabled={!isCurrentAnswered}
                   className="px-4 py-1.5 text-sm rounded-lg bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
                 >
                   Next
@@ -300,7 +314,8 @@ export function InlineQuestionBlock({ questions, onAnswer, onCancel }: InlineQue
                   </svg>
                 </button>
               )}
-              {(isLastQuestion || currentQuestion.multiSelect) && isCurrentAnswered() && isLastQuestion && (
+              {/* Submit button only for multi-select on last question (single-select auto-submits) */}
+              {isLastQuestion && currentQuestion.multiSelect && isCurrentAnswered && (
                 <button
                   onClick={handleSubmit}
                   className="px-4 py-1.5 text-sm rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition-colors"
