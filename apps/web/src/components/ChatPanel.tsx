@@ -20,6 +20,46 @@ import { ThreadHeader } from './ThreadHeader';
 import { MessageInput } from './MessageInput';
 import { MessageBubble, StreamingMessage, StreamingToolBlock } from './MessageBubble';
 import { PlanApprovalBlock } from './PlanApprovalBlock';
+import { ToolHistoryBlock } from './ToolHistoryBlock';
+
+// Type for grouped streaming blocks
+type StreamingBlockGroup =
+  | { type: 'single'; block: StreamingBlock }
+  | { type: 'tool_group'; blocks: StreamingBlock[] };
+
+// Group consecutive tool_use blocks together for accumulating display
+function groupStreamingBlocks(blocks: StreamingBlock[]): StreamingBlockGroup[] {
+  const groups: StreamingBlockGroup[] = [];
+  let currentToolGroup: StreamingBlock[] = [];
+
+  for (const block of blocks) {
+    if (block.type === 'tool_use') {
+      currentToolGroup.push(block);
+    } else {
+      // Flush any pending tool group
+      if (currentToolGroup.length > 0) {
+        groups.push(
+          currentToolGroup.length === 1
+            ? { type: 'single', block: currentToolGroup[0] }
+            : { type: 'tool_group', blocks: currentToolGroup }
+        );
+        currentToolGroup = [];
+      }
+      groups.push({ type: 'single', block });
+    }
+  }
+
+  // Flush remaining tool group
+  if (currentToolGroup.length > 0) {
+    groups.push(
+      currentToolGroup.length === 1
+        ? { type: 'single', block: currentToolGroup[0] }
+        : { type: 'tool_group', blocks: currentToolGroup }
+    );
+  }
+
+  return groups;
+}
 
 // Hook to fetch token info for a thread
 function useTokenInfo(threadId: string | null): { tokenInfo: TokenInfo | null; isLoading: boolean } {
@@ -449,16 +489,30 @@ export function ChatPanel() {
           )
         )}
 
-        {/* Streaming blocks */}
-        {activeThreadId && currentStreamingBlocks.map((block, index) => (
-          <StreamingBlockRenderer
-            key={`block-${block.timestamp}-${index}`}
-            block={block}
-            threadId={activeThreadId}
-            expandedBlockId={currentExpandedBlockId}
-            onToggleExpanded={handleToggleStreamingBlock}
-          />
-        ))}
+        {/* Streaming blocks - grouped for accumulating tool display */}
+        {activeThreadId && groupStreamingBlocks(currentStreamingBlocks).map((group, groupIndex) => {
+          if (group.type === 'single') {
+            const block = group.block;
+            return (
+              <StreamingBlockRenderer
+                key={`block-${block.timestamp}-${groupIndex}`}
+                block={block}
+                threadId={activeThreadId}
+                expandedBlockId={currentExpandedBlockId}
+                onToggleExpanded={handleToggleStreamingBlock}
+              />
+            );
+          } else {
+            // Render tool group using ToolHistoryBlock
+            const tools = group.blocks.map((b) => ({
+              name: b.name || 'unknown',
+              input: b.input,
+              id: b.id,
+              isComplete: b.isComplete ?? false,
+            }));
+            return <ToolHistoryBlock key={`tool-group-${groupIndex}`} tools={tools} />;
+          }
+        })}
 
         {/* Processing indicator */}
         {activeThread?.status === 'pending' && currentStreamingBlocks.length === 0 && (
