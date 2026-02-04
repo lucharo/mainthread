@@ -103,17 +103,22 @@ You are in thread: "{thread['title']}" (ID: {thread['id']})
 """
 
     if thread.get("parentId"):
-        # Sub-thread prompt: focused on task completion and status signaling
+        # Sub-thread prompt: focused on task completion, status signaling, and delegation
         prompt += """
-This is a SUB-THREAD spawned from the main conversation.
+This is a SUB-THREAD spawned from a parent thread.
 You have a specific task or context for this thread.
 
+DELEGATION:
+You can spawn your own sub-threads for parallel work using SpawnThread. This enables
+hierarchical task decomposition - break complex tasks into independent sub-tasks.
+You also have access to ListThreads, ReadThread, ArchiveThread, and SendToThread.
+
 COMPLETION SIGNALING:
-When you finish your task or get blocked, use the SignalStatus tool to notify the parent thread:
+When you finish your task or get blocked, use the SignalStatus tool to notify your parent:
 - Call SignalStatus(status="done", reason="...") when your task is complete
 - Call SignalStatus(status="blocked", reason="...") when you need human input or are stuck
 
-The parent thread will be automatically notified when you signal your status.
+Your parent thread will be automatically notified when you signal your status.
 """
     else:
         # Main thread prompt: delegation and coordination capabilities
