@@ -452,11 +452,13 @@ async def create_thread_for_agent(
     title: str,
     parent_id: str | None = None,
     work_dir: str | None = None,
+    model: str | None = None,
     permission_mode: str | None = None,
+    extended_thinking: bool | None = None,
 ) -> dict[str, Any]:
     """Create a thread - async wrapper for the agent's SpawnThread tool.
 
-    If parent_id is provided and no explicit permission_mode, inherits from parent.
+    If parent_id is provided and optional params not specified, inherits from parent.
     For sub-threads (with parent_id) in git repos, automatically creates an isolated worktree.
     """
     # Validate and normalize working directory
@@ -464,10 +466,16 @@ async def create_thread_for_agent(
     # Detect git info from working directory
     git_info = await detect_git_info(validated_work_dir)
 
-    # If parent_id provided and no explicit mode, inherit from parent
-    if parent_id and not permission_mode:
+    # If parent_id provided and params not explicit, inherit from parent
+    if parent_id:
         parent = get_thread(parent_id)
-        permission_mode = parent.get("permissionMode", "acceptEdits") if parent else "acceptEdits"
+        if parent:
+            if model is None:
+                model = parent.get("model", "claude-opus-4-5")
+            if permission_mode is None:
+                permission_mode = parent.get("permissionMode", "acceptEdits")
+            if extended_thinking is None:
+                extended_thinking = parent.get("extendedThinking", True)
 
     # For sub-threads in git repos, automatically create an isolated worktree
     worktree_info: dict[str, Any] = {"success": False, "worktree_path": None, "branch_name": None, "error": None}
@@ -499,11 +507,13 @@ async def create_thread_for_agent(
         title=title,
         parent_id=parent_id,
         work_dir=final_work_dir,
+        model=model or "claude-opus-4-5",
+        extended_thinking=extended_thinking if extended_thinking is not None else True,
+        permission_mode=permission_mode or "acceptEdits",
         git_branch=git_info["git_branch"],
         git_repo=git_info["git_repo"],
         is_worktree=final_is_worktree,
         worktree_branch=worktree_branch,
-        permission_mode=permission_mode or "acceptEdits",
     )
 
     # Store worktree info in thread metadata for response messages

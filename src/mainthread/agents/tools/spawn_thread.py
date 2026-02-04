@@ -8,12 +8,19 @@ from claude_agent_sdk import tool
 from mainthread.agents.registry import get_registry
 
 
-def create_spawn_thread_tool(parent_thread_id: str, parent_permission_mode: str | None = None):
+def create_spawn_thread_tool(
+    parent_thread_id: str,
+    parent_model: str = "claude-opus-4-5",
+    parent_permission_mode: str = "acceptEdits",
+    parent_extended_thinking: bool = True,
+):
     """Create the SpawnThread tool for a specific parent thread.
 
     Args:
         parent_thread_id: ID of the parent thread that will spawn sub-threads
-        parent_permission_mode: Permission mode of the parent thread to inherit
+        parent_model: Model of the parent thread (inherited if not specified)
+        parent_permission_mode: Permission mode of the parent thread (inherited if not specified)
+        parent_extended_thinking: Extended thinking setting of parent (inherited if not specified)
     """
 
     @tool(
@@ -22,8 +29,19 @@ def create_spawn_thread_tool(parent_thread_id: str, parent_permission_mode: str 
         "If initial_message is provided, the sub-thread will start processing immediately. "
         "IMPORTANT: Sub-threads automatically notify the parent when they complete (status='done') or need attention "
         "(status='needs_attention'). You do NOT need to poll or repeatedly check sub-thread status - just continue "
-        "other work and you will be notified when the sub-thread finishes.",
-        {"title": str, "work_dir": str, "initial_message": str},
+        "other work and you will be notified when the sub-thread finishes.\n\n"
+        "Optional configuration (inherits from parent if not specified):\n"
+        "- model: 'claude-sonnet-4-5', 'claude-opus-4-5', or 'claude-haiku-4-5'\n"
+        "- permission_mode: 'default', 'acceptEdits', 'bypassPermissions', or 'plan'\n"
+        "- extended_thinking: true/false for extended thinking mode",
+        {
+            "title": str,
+            "work_dir": str,
+            "initial_message": str,
+            "model": str,
+            "permission_mode": str,
+            "extended_thinking": bool,
+        },
     )
     async def spawn_thread(args: dict[str, Any]) -> dict[str, Any]:
         registry = get_registry()
@@ -34,12 +52,19 @@ def create_spawn_thread_tool(parent_thread_id: str, parent_permission_mode: str 
                 "is_error": True,
             }
 
+        # Use provided values or inherit from parent
+        model = args.get("model") or parent_model
+        permission_mode = args.get("permission_mode") or parent_permission_mode
+        extended_thinking = args.get("extended_thinking") if args.get("extended_thinking") is not None else parent_extended_thinking
+
         try:
             new_thread = await registry.create_thread(
                 title=args["title"],
                 parent_id=parent_thread_id,
                 work_dir=args.get("work_dir"),
-                permission_mode=parent_permission_mode,
+                model=model,
+                permission_mode=permission_mode,
+                extended_thinking=extended_thinking,
             )
 
             # Build worktree status message

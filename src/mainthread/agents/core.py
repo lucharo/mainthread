@@ -469,7 +469,12 @@ async def run_agent(
 
     if not thread.get("parentId"):
         # Main thread: delegation tools
-        spawn_tool = create_spawn_thread_tool(thread_id, permission)
+        spawn_tool = create_spawn_thread_tool(
+            parent_thread_id=thread_id,
+            parent_model=model,
+            parent_permission_mode=permission,
+            parent_extended_thinking=thread.get("extendedThinking", True),
+        )
         list_threads_tool = create_list_threads_tool()
         archive_thread_tool = create_archive_thread_tool()
         read_thread_tool = create_read_thread_tool()
