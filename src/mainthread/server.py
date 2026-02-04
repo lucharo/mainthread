@@ -53,6 +53,7 @@ from mainthread.db import (
     get_thread_messages_formatted,
     reset_all_threads,
     unarchive_thread,
+    update_message,
     update_thread_config,
     update_thread_session,
     update_thread_status,
@@ -233,6 +234,9 @@ class MessageStreamProcessor:
 
     This class extracts the common message processing logic used by
     send_message(), run_thread_for_agent(), and run_parent_thread_notification().
+
+    Messages are saved incrementally to the database after each event,
+    so content is preserved even if the browser is refreshed mid-stream.
     """
 
     def __init__(self, thread_id: str):
@@ -242,6 +246,17 @@ class MessageStreamProcessor:
         self.pending_tool_ids: list[str] = []
         self.final_status = "active"
         self.final_session_id: str | None = None
+        # Create assistant message immediately so it persists through refresh
+        self._message = add_message(thread_id, "assistant", "[streaming...]")
+        self.message_id = self._message["id"]
+
+    def _save_current_state(self) -> None:
+        """Save current content to database (called after each event)."""
+        content = self.get_full_content()
+        content_blocks = self.get_content_blocks_json()
+        updated = update_message(self.message_id, content, content_blocks)
+        if updated:
+            self._message = updated
 
     async def _complete_pending_tool(self) -> None:
         """Mark first pending tool as complete (FIFO fallback)."""
@@ -258,7 +273,22 @@ class MessageStreamProcessor:
 
     async def process_message(self, msg) -> None:
         """Process a single message from the agent stream."""
+        logger.info(f"[MSG] type={msg.type}, metadata={msg.metadata}")
         if msg.type == "text":
+            # SIMPLIFIED: Mark all pending tools complete when text starts
+            # (Claude is responding, so all tool calls must have finished)
+            for block in self.collected_blocks:
+                if block.get("type") == "tool_use" and not block.get("isComplete"):
+                    prev_id = block.get("id")
+                    block["isComplete"] = True
+                    logger.info(f"[SSE] text: auto-completing tool {prev_id}")
+                    await broadcast_to_thread(self.thread_id, {
+                        "type": "tool_result",
+                        "data": {"tool_use_id": prev_id},
+                    })
+            # Clear pending since we just completed them all
+            self.pending_tool_ids.clear()
+
             self.collected_content.append(msg.content)
             if self.collected_blocks and self.collected_blocks[-1].get("type") == "text":
                 self.collected_blocks[-1]["content"] += msg.content
@@ -294,6 +324,20 @@ class MessageStreamProcessor:
             tool_data = msg.metadata or {}
             tool_id = tool_data.get("id")
             tool_name = tool_data.get("tool") or tool_data.get("name")
+            logger.info(f"[SSE] tool_use: name={tool_name}, id={tool_id}")
+
+            # SIMPLIFIED: Mark ALL previous tools as complete when a new tool starts
+            # (If Claude is calling tool #2, tool #1 must have finished)
+            for block in self.collected_blocks:
+                if block.get("type") == "tool_use" and not block.get("isComplete"):
+                    prev_id = block.get("id")
+                    block["isComplete"] = True
+                    logger.info(f"[SSE] tool_use: auto-completing previous tool {prev_id}")
+                    # Broadcast completion for each previous tool
+                    await broadcast_to_thread(self.thread_id, {
+                        "type": "tool_result",
+                        "data": {"tool_use_id": prev_id},
+                    })
 
             if tool_id:
                 self.pending_tool_ids.append(tool_id)
@@ -316,18 +360,24 @@ class MessageStreamProcessor:
 
         elif msg.type == "tool_result":
             tool_use_id = msg.metadata.get("tool_use_id") if msg.metadata else None
+            is_error = msg.metadata.get("is_error", False) if msg.metadata else False
+            logger.info(f"[SSE] tool_result: tool_use_id={tool_use_id}, is_error={is_error}, pending={self.pending_tool_ids}")
             # FIFO fallback: if SDK doesn't provide tool_use_id, use first pending
             if not tool_use_id and self.pending_tool_ids:
                 tool_use_id = self.pending_tool_ids.pop(0)
+                logger.info(f"[SSE] tool_result: used FIFO fallback, got id={tool_use_id}")
             elif tool_use_id and tool_use_id in self.pending_tool_ids:
                 self.pending_tool_ids.remove(tool_use_id)
             if tool_use_id:
                 for block in self.collected_blocks:
                     if block.get("type") == "tool_use" and block.get("id") == tool_use_id:
                         block["isComplete"] = True
+                        if is_error:
+                            block["isError"] = True
+                        logger.info(f"[SSE] tool_result: marked block {tool_use_id} as complete (error={is_error})")
                         break
             # Include result content for tools that return structured data
-            result_data: dict[str, Any] = {"tool_use_id": tool_use_id}
+            result_data: dict[str, Any] = {"tool_use_id": tool_use_id, "is_error": is_error}
             if msg.content:
                 result_data["content"] = msg.content
                 # Extract thread_id from SpawnThread tool result (embedded as <!--SPAWN_DATA:uuid-->)
@@ -362,6 +412,9 @@ class MessageStreamProcessor:
             self.final_status = msg.content
             if msg.metadata:
                 self.final_session_id = msg.metadata.get("session_id")
+
+        # Save after every event so content survives browser refresh
+        self._save_current_state()
 
     async def finalize(self) -> None:
         """Complete remaining pending tools at end of stream."""
@@ -532,12 +585,8 @@ async def run_parent_thread_notification(thread_id: str, notification_content: s
 
         await processor.finalize()
 
-        # Save assistant message
-        assistant_message = add_message(
-            thread_id, "assistant",
-            processor.get_full_content(),
-            processor.get_content_blocks_json()
-        )
+        # Message already saved incrementally by processor
+        assistant_message = processor._message
 
         # Update thread status and session
         update_thread_status(thread_id, processor.final_status)
@@ -597,12 +646,8 @@ async def run_thread_for_agent(thread_id: str, message: str) -> None:
 
         await processor.finalize()
 
-        # Save assistant message with content blocks
-        assistant_message = add_message(
-            thread_id, "assistant",
-            processor.get_full_content(),
-            processor.get_content_blocks_json()
-        )
+        # Message already saved incrementally by processor
+        assistant_message = processor._message
 
         # Update thread status and session
         update_thread_status(thread_id, processor.final_status)
@@ -1537,12 +1582,8 @@ async def send_message(thread_id: str, request: SendMessageRequest) -> dict[str,
 
         await processor.finalize()
 
-        # Save assistant message with content blocks
-        assistant_message = add_message(
-            thread_id, "assistant",
-            processor.get_full_content(),
-            processor.get_content_blocks_json()
-        )
+        # Message already saved incrementally by processor
+        assistant_message = processor._message
 
         # Update thread status and session
         update_thread_status(thread_id, processor.final_status)

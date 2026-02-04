@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { STREAMING_BLOCK_CLEAR_DELAY_MS } from '../constants/animations';
+import { STREAMING_BLOCK_CLEAR_DELAY_MS, RECENT_TOOLS_EXPANDED } from '../constants/animations';
 
 // Re-export types from the types module for backward compatibility
 export type {
@@ -48,6 +48,8 @@ interface ThreadState {
   streamingBlocks: Record<string, StreamingBlock[]>;
   // Track which streaming block is currently expanded per thread (only one at a time)
   expandedStreamingBlockId: Record<string, string | null>;
+  // FIFO queue of recent tool block IDs per thread (for FIFO collapsing)
+  recentToolBlockIds: Record<string, string[]>;
   pendingQuestion: Record<string, AgentQuestion[] | null>;
   pendingPlanApproval: Record<string, PendingPlanApproval | null>;
   threadNotifications: Record<string, ThreadCreatedNotification[]>;
@@ -80,7 +82,8 @@ interface ThreadState {
   appendStreamingBlock: (threadId: string, block: Omit<StreamingBlock, 'timestamp'>) => void;
   appendTextToLastBlock: (threadId: string, content: string) => void;
   appendThinkingToLastBlock: (threadId: string, content: string) => void;
-  markBlockComplete: (threadId: string, toolUseId: string) => void;
+  markBlockComplete: (threadId: string, toolUseId: string, isError?: boolean, errorMessage?: string) => void;
+  collapseToolBlock: (threadId: string, toolUseId: string) => void;
   clearStreamingBlocks: (threadId: string) => void;
   setExpandedStreamingBlockId: (threadId: string, blockId: string | null) => void;
   setPendingQuestion: (threadId: string, questions: AgentQuestion[] | null) => void;
@@ -138,6 +141,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   sseConnections: {},
   streamingBlocks: {},
   expandedStreamingBlockId: {},
+  recentToolBlockIds: {},
   pendingQuestion: {},
   pendingPlanApproval: {},
   threadNotifications: {},
@@ -659,7 +663,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     eventSource.addEventListener('tool_use', (event) => {
       updateLastEventId(event);
       const data = safeJsonParse<{ tool?: string; name?: string; input?: Record<string, unknown>; id?: string }>(event.data, {});
-      console.log('[SSE] tool_use received:', data);
+      console.log('[SSE] tool_use received:', data, 'id:', data.id);
       const toolName = data.tool || data.name;
       if (toolName) {
         get().appendStreamingBlock(threadId, {
@@ -674,14 +678,21 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
 
     eventSource.addEventListener('tool_result', (event) => {
       updateLastEventId(event);
-      const data = safeJsonParse<{ tool_use_id?: string; thread_id?: string; content?: unknown }>(event.data, {});
-      console.log('[SSE] tool_result received:', data);
+      const data = safeJsonParse<{ tool_use_id?: string; thread_id?: string; content?: unknown; is_error?: boolean }>(event.data, {});
+      console.log('[SSE] tool_result received:', data, 'tool_use_id:', data.tool_use_id);
       if (data.tool_use_id) {
-        get().markBlockComplete(threadId, data.tool_use_id);
+        // Prefer the explicit is_error flag from the backend.
+        // String-based detection is a fallback heuristic and may have false positives/negatives.
+        const isError = data.is_error === true;
+        const errorMessage = isError && typeof data.content === 'string' ? data.content : undefined;
+        console.log('[SSE] Marking block complete:', data.tool_use_id, 'isError:', isError);
+        get().markBlockComplete(threadId, data.tool_use_id, isError, errorMessage);
         // Track spawned thread ID for SpawnThread tool (avoids unreliable title-based lookup)
         if (data.thread_id) {
           get().setSpawnedThreadId(data.tool_use_id, data.thread_id);
         }
+      } else {
+        console.warn('[SSE] tool_result missing tool_use_id:', data);
       }
     });
 
@@ -1034,13 +1045,40 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   appendStreamingBlock: (threadId, block) => {
     set((state) => {
       const existingBlocks = state.streamingBlocks[threadId] || [];
-      // Finalize all previous blocks when adding a new block
-      const finalizedBlocks = existingBlocks.map(b => ({ ...b, isFinalized: true }));
+      const existingQueue = state.recentToolBlockIds[threadId] || [];
+
+      // Start with finalized blocks
+      let updatedBlocks = existingBlocks.map(b => ({ ...b, isFinalized: true }));
+      let updatedQueue = [...existingQueue];
+
+      // Handle FIFO collapsing for tool_use blocks (atomic with block addition)
+      if (block.type === 'tool_use' && block.id) {
+        console.log(`[FIFO] New tool_use block: ${block.id}, queue before:`, updatedQueue, `limit: ${RECENT_TOOLS_EXPANDED}`);
+        // FIFO: Collapse oldest blocks until under limit
+        while (updatedQueue.length >= RECENT_TOOLS_EXPANDED) {
+          const oldestId = updatedQueue.shift();
+          console.log(`[FIFO] Collapsing oldest block: ${oldestId}`);
+          if (oldestId) {
+            // Mark oldest block as collapsed inline
+            updatedBlocks = updatedBlocks.map((b) =>
+              b.type === 'tool_use' && b.id === oldestId
+                ? { ...b, isCollapsed: true }
+                : b
+            );
+          }
+        }
+        // Add new block ID to queue
+        updatedQueue.push(block.id);
+        console.log(`[FIFO] Queue after:`, updatedQueue);
+      } else if (block.type === 'tool_use') {
+        console.log(`[FIFO] Tool block missing id:`, block);
+      }
+
       return {
         streamingBlocks: {
           ...state.streamingBlocks,
           [threadId]: [
-            ...finalizedBlocks,
+            ...updatedBlocks,
             { ...block, timestamp: Date.now(), isFinalized: false },
           ],
         },
@@ -1048,6 +1086,11 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         expandedStreamingBlockId: {
           ...state.expandedStreamingBlockId,
           [threadId]: null,
+        },
+        // Update FIFO queue
+        recentToolBlockIds: {
+          ...state.recentToolBlockIds,
+          [threadId]: updatedQueue,
         },
       };
     });
@@ -1123,8 +1166,8 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     });
   },
 
-  markBlockComplete: (threadId, toolUseId) => {
-    console.log(`[SSE] markBlockComplete called: threadId=${threadId}, toolUseId=${toolUseId}`);
+  markBlockComplete: (threadId, toolUseId, isError = false, errorMessage) => {
+    console.log(`[SSE] markBlockComplete called: threadId=${threadId}, toolUseId=${toolUseId}, isError=${isError}`);
     set((state) => {
       const blocks = state.streamingBlocks[threadId] || [];
       const blockIndex = blocks.findIndex((b) => b.type === 'tool_use' && b.id === toolUseId);
@@ -1134,7 +1177,23 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
           ...state.streamingBlocks,
           [threadId]: blocks.map((b) =>
             b.type === 'tool_use' && b.id === toolUseId
-              ? { ...b, isComplete: true, isFinalized: true }
+              ? { ...b, isComplete: true, isFinalized: true, isError, errorMessage }
+              : b
+          ),
+        },
+      };
+    });
+  },
+
+  collapseToolBlock: (threadId, toolUseId) => {
+    set((state) => {
+      const blocks = state.streamingBlocks[threadId] || [];
+      return {
+        streamingBlocks: {
+          ...state.streamingBlocks,
+          [threadId]: blocks.map((b) =>
+            b.type === 'tool_use' && b.id === toolUseId
+              ? { ...b, isCollapsed: true }
               : b
           ),
         },
@@ -1146,7 +1205,12 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     set((state) => {
       const { [threadId]: _, ...restBlocks } = state.streamingBlocks;
       const { [threadId]: __, ...restExpanded } = state.expandedStreamingBlockId;
-      return { streamingBlocks: restBlocks, expandedStreamingBlockId: restExpanded };
+      const { [threadId]: ___, ...restQueue } = state.recentToolBlockIds;
+      return {
+        streamingBlocks: restBlocks,
+        expandedStreamingBlockId: restExpanded,
+        recentToolBlockIds: restQueue,
+      };
     });
   },
 
@@ -1240,7 +1304,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     Object.values(sseConnections).forEach((conn) => {
       conn.eventSource.close();
     });
-    set({ sseConnections: {}, streamingBlocks: {}, pendingQuestion: {}, pendingPlanApproval: {}, threadNotifications: {}, pagination: {}, spawnedThreadIds: {} });
+    set({ sseConnections: {}, streamingBlocks: {}, expandedStreamingBlockId: {}, recentToolBlockIds: {}, pendingQuestion: {}, pendingPlanApproval: {}, threadNotifications: {}, pagination: {}, spawnedThreadIds: {} });
   },
 
   setSpawnedThreadId: (toolUseId, threadId) => {

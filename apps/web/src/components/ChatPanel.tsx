@@ -100,6 +100,8 @@ function StreamingBlockRenderer({
           input={block.input as Record<string, unknown>}
           isComplete={block.isComplete}
           toolUseId={block.id}
+          isCollapsed={block.isCollapsed}
+          isError={block.isError}
         />
       );
     default:

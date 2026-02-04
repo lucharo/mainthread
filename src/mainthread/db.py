@@ -462,6 +462,35 @@ def add_message(
         return dict(row)
 
 
+def update_message(
+    message_id: str,
+    content: str,
+    content_blocks: str | None = None,
+) -> dict[str, Any] | None:
+    """Update an existing message's content.
+
+    Args:
+        message_id: The message to update
+        content: New plain text content
+        content_blocks: New JSON string of structured content blocks
+
+    Returns:
+        Updated message dict or None if not found
+    """
+    with get_db() as conn:
+        conn.execute(
+            """
+            UPDATE messages
+            SET content = ?, content_blocks = ?
+            WHERE id = ?
+            """,
+            (content, content_blocks, message_id),
+        )
+        cursor = conn.execute("SELECT * FROM messages WHERE id = ?", (message_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+
 def delete_thread(thread_id: str) -> bool:
     """Delete a thread and its messages."""
     with get_db() as conn:

@@ -51,16 +51,31 @@ function ToolBlock({
   name,
   input,
   isComplete,
+  isCollapsed,
+  isError,
 }: {
   name?: string;
   input?: Record<string, unknown>;
   isComplete?: boolean;
+  isCollapsed?: boolean;
+  isError?: boolean;
 }) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  // Local state for manual toggle, but starts from FIFO state
+  const [isExpanded, setIsExpanded] = useState(!isCollapsed);
   const summary = formatToolSummary(name, input);
   const wasIncomplete = useRef(!isComplete);
 
-  // Auto-collapse only when tool transitions from incomplete to complete
+  // Sync with FIFO collapse state (external trigger from queue management)
+  useEffect(() => {
+    if (isCollapsed) {
+      setIsExpanded(false);
+    }
+  }, [isCollapsed]);
+
+  // Auto-collapse on completion (timing-based, secondary to FIFO).
+  // Note: wasIncomplete is a ref and doesn't need to be in deps.
+  // The ref tracks whether this specific instance saw the tool as incomplete,
+  // preventing re-collapse if user manually expands a completed tool.
   useEffect(() => {
     if (isComplete && wasIncomplete.current && isExpanded) {
       const timer = setTimeout(() => setIsExpanded(false), COLLAPSE_ANIMATION_DURATION_MS);
@@ -77,9 +92,22 @@ function ToolBlock({
       <div className="my-2">
         <button
           onClick={() => setIsExpanded(!isExpanded)}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground bg-muted/30 hover:bg-muted/50 rounded-lg transition-colors w-full text-left"
+          className={`flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground rounded-lg transition-colors w-full text-left ${
+            isError
+              ? 'bg-red-500/10 hover:bg-red-500/20 border border-red-500/50'
+              : 'bg-muted/30 hover:bg-muted/50'
+          }`}
         >
-          {isComplete ? (
+          {isError ? (
+            <svg
+              className="w-4 h-4 text-red-500 flex-shrink-0"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          ) : isComplete ? (
             <svg
               className="w-4 h-4 text-green-500 flex-shrink-0"
               fill="none"
@@ -110,7 +138,7 @@ function ToolBlock({
               />
             </svg>
           )}
-          <span className="font-medium">{formatToolName(name)}</span>
+          <span className={`font-medium ${isError ? 'text-red-600' : ''}`}>{formatToolName(name)}</span>
           {summary && <span className="text-xs opacity-70 truncate flex-1 font-mono">{summary}</span>}
           <svg
             className={`w-4 h-4 transition-transform flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`}
@@ -353,11 +381,15 @@ export function StreamingToolBlock({
   input,
   isComplete,
   toolUseId,
+  isCollapsed,
+  isError,
 }: {
   name?: string;
   input?: Record<string, unknown>;
   isComplete?: boolean;
   toolUseId?: string;
+  isCollapsed?: boolean;
+  isError?: boolean;
 }) {
   // Only subscribe to threads/spawnedThreadIds for SpawnThread to avoid unnecessary re-renders
   const isSpawnThread = isSpawnThreadTool(name);
@@ -389,5 +421,7 @@ export function StreamingToolBlock({
     );
   }
 
-  return <ToolBlock name={name} input={input} isComplete={isComplete} />;
+  // Hide input for AskUserQuestion since it has its own UI (InlineQuestionBlock)
+  const hideInput = name === 'AskUserQuestion';
+  return <ToolBlock name={name} input={hideInput ? undefined : input} isComplete={isComplete} isCollapsed={isCollapsed} isError={isError} />;
 }

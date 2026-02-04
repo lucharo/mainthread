@@ -17,3 +17,10 @@ export const COLLAPSE_ANIMATION_DURATION_MS = 500;
  * Must be greater than COLLAPSE_ANIMATION_DURATION_MS to allow animations to finish.
  */
 export const STREAMING_BLOCK_CLEAR_DELAY_MS = COLLAPSE_ANIMATION_DURATION_MS + 100;
+
+/**
+ * FIFO: How many recent tool blocks stay expanded.
+ * When a new tool_use block arrives and the queue exceeds this limit,
+ * the oldest blocks are collapsed to make room.
+ */
+export const RECENT_TOOLS_EXPANDED = 2;

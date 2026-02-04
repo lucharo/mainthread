@@ -434,9 +434,11 @@ async def run_agent(
     permission = thread.get("permissionMode", "acceptEdits")
 
     # Determine tools based on thread type
+    # All available Claude Code tools - no restrictions
     allowed_tools = [
         "Read",
         "Edit",
+        "MultiEdit",
         "Bash",
         "Glob",
         "Grep",
@@ -448,11 +450,10 @@ async def run_agent(
         "NotebookEdit",
         "KillShell",
         "TaskOutput",
+        "EnterPlanMode",
+        "ExitPlanMode",
+        "Skill",
     ]
-
-    # Plan mode tools (only in plan permission mode)
-    if permission == "plan":
-        allowed_tools.extend(["EnterPlanMode", "ExitPlanMode"])
 
     # Create MCP server config for custom tools
     mcp_servers = {}
@@ -555,7 +556,9 @@ async def run_agent(
                 logger.info(f"[AGENT] Received message type: {type(message).__name__}")
 
                 if isinstance(message, AssistantMessage):
+                    logger.info(f"[AGENT] AssistantMessage content has {len(message.content)} blocks")
                     for block in message.content:
+                        logger.info(f"[AGENT] Block type: {type(block).__name__}")
                         if isinstance(block, TextBlock):
                             if not received_streaming_text:
                                 collected_content.append(block.text)
@@ -569,22 +572,27 @@ async def run_agent(
                             )
 
                         elif isinstance(block, ToolUseBlock):
-                            collected_tool_calls.append(
-                                {
-                                    "name": block.name,
-                                    "input": block.input,
-                                    "id": block.id,
-                                }
+                            # Skip if already emitted via StreamEvent
+                            already_emitted = any(
+                                t.get("id") == block.id for t in collected_tool_calls
                             )
-                            yield AgentMessage(
-                                type="tool_use",
-                                content=f"Using tool: {block.name}",
-                                metadata={
-                                    "tool": block.name,
-                                    "input": block.input,
-                                    "id": block.id,
-                                },
-                            )
+                            if not already_emitted:
+                                collected_tool_calls.append(
+                                    {
+                                        "name": block.name,
+                                        "input": block.input,
+                                        "id": block.id,
+                                    }
+                                )
+                                yield AgentMessage(
+                                    type="tool_use",
+                                    content=f"Using tool: {block.name}",
+                                    metadata={
+                                        "tool": block.name,
+                                        "input": block.input,
+                                        "id": block.id,
+                                    },
+                                )
 
                         elif isinstance(block, ToolResultBlock):
                             content = (
@@ -595,7 +603,10 @@ async def run_agent(
                             yield AgentMessage(
                                 type="tool_result",
                                 content=content,
-                                metadata={"tool_use_id": block.tool_use_id},
+                                metadata={
+                                    "tool_use_id": block.tool_use_id,
+                                    "is_error": block.is_error or False,
+                                },
                             )
 
                 elif isinstance(message, ResultMessage):
@@ -628,6 +639,9 @@ async def run_agent(
                     event = message.event
                     event_type = event.get("type", "")
 
+                    # Log all event types for debugging
+                    logger.debug(f"[AGENT] StreamEvent: {event_type}, event={event}")
+
                     if event_type == "content_block_delta":
                         delta = event.get("delta", {})
                         delta_type = delta.get("type", "")
@@ -646,6 +660,8 @@ async def run_agent(
                                 received_streaming_text = True
                                 collected_content.append(text_content)
                                 yield AgentMessage(type="text", content=text_content)
+                        # input_json_delta events stream tool input JSON but we don't need
+                        # to accumulate it - the full input comes in AssistantMessage
 
                     elif event_type == "content_block_start":
                         content_block = event.get("content_block", {})
@@ -658,6 +674,29 @@ async def run_agent(
                                     content="",
                                     metadata={"signature": signature},
                                 )
+                        elif block_type == "tool_use":
+                            tool_name = content_block.get("name", "")
+                            tool_id = content_block.get("id", "")
+                            logger.info(f"[AGENT] StreamEvent tool_use start: {tool_name} ({tool_id})")
+                            # Yield tool_use immediately so UI can show spinner
+                            collected_tool_calls.append({
+                                "name": tool_name,
+                                "input": {},
+                                "id": tool_id,
+                            })
+                            yield AgentMessage(
+                                type="tool_use",
+                                content=f"Using tool: {tool_name}",
+                                metadata={
+                                    "tool": tool_name,
+                                    "input": {},
+                                    "id": tool_id,
+                                },
+                            )
+
+                    # content_block_stop: No action needed here. Tool completion is
+                    # signaled via server.py's auto-completion logic (when text starts
+                    # or a new tool starts, previous tools are marked complete).
 
     except CLINotFoundError:
         yield AgentMessage(

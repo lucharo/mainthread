@@ -75,6 +75,11 @@ export interface StreamingBlock {
   name?: string;
   input?: Record<string, unknown>;
   isComplete?: boolean;
+  // FIFO collapse state (separate from isComplete - a tool can be complete but still expanded)
+  isCollapsed?: boolean;
+  // Error state - tool execution failed
+  isError?: boolean;
+  errorMessage?: string;
   // Plan approval block fields
   planFilePath?: string;
   planContent?: string;
