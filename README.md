@@ -38,7 +38,6 @@ mainthread serve --work-dir /path/to/project
 ## Features
 
 - **Spawned Sub-threads**: Create parallel threads for independent work—not background sub-agents, but full conversations you can jump into and continue anytime
-- **Nested Sub-threads** (experimental): Sub-threads can spawn their own sub-threads, up to 5 levels deep
 - **Continue from CLI**: Every thread can be resumed from the command line with full conversation history
 - **Automatic Notifications**: Sub-threads signal completion or need attention; parent thread stays informed
 - **Claude Code Integration**: Uses Claude Code SDK for tool use and extended thinking
