@@ -39,11 +39,30 @@ function formatToolSummary(
     case 'WebFetch':
       summary = input.url ? String(input.url) : '';
       break;
+    // Tools with no meaningful input to display
+    case 'EnterPlanMode':
+    case 'ExitPlanMode':
+    case 'TaskList':
+      summary = '';
+      break;
     default:
       summary = '';
   }
   // Truncate long summaries for collapsed display
   return truncateContent(summary, 100);
+}
+
+// Check if input has meaningful content to display
+function hasExpandableContent(input: Record<string, unknown> | undefined): boolean {
+  if (!input) return false;
+  const keys = Object.keys(input);
+  if (keys.length === 0) return false;
+  // Check if all values are empty/null/undefined
+  return keys.some(k => {
+    const val = input[k];
+    return val !== null && val !== undefined && val !== '' &&
+           !(typeof val === 'object' && Object.keys(val as object).length === 0);
+  });
 }
 
 // Reusable tool block component with expand/collapse
@@ -60,8 +79,10 @@ function ToolBlock({
   isCollapsed?: boolean;
   isError?: boolean;
 }) {
+  // Check if there's content worth expanding
+  const canExpand = hasExpandableContent(input);
   // Local state for manual toggle, but starts from FIFO state
-  const [isExpanded, setIsExpanded] = useState(!isCollapsed);
+  const [isExpanded, setIsExpanded] = useState(!isCollapsed && canExpand);
   const summary = formatToolSummary(name, input);
   const wasIncomplete = useRef(!isComplete);
 
@@ -91,12 +112,12 @@ function ToolBlock({
     <AssistantBlock>
       <div className="my-2">
         <button
-          onClick={() => setIsExpanded(!isExpanded)}
+          onClick={() => canExpand && setIsExpanded(!isExpanded)}
           className={`flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground rounded-lg transition-colors w-full text-left ${
             isError
               ? 'bg-red-500/10 hover:bg-red-500/20 border border-red-500/50'
               : 'bg-muted/30 hover:bg-muted/50'
-          }`}
+          } ${!canExpand ? 'cursor-default' : ''}`}
         >
           {isError ? (
             <svg
@@ -140,16 +161,18 @@ function ToolBlock({
           )}
           <span className={`font-medium ${isError ? 'text-red-600' : ''}`}>{formatToolName(name)}</span>
           {summary && <span className="text-xs opacity-70 truncate flex-1 font-mono">{summary}</span>}
-          <svg
-            className={`w-4 h-4 transition-transform flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
+          {canExpand && (
+            <svg
+              className={`w-4 h-4 transition-transform flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          )}
         </button>
-        {isExpanded && input && (
+        {isExpanded && input && hasExpandableContent(input) && (
           <div className="mt-1 ml-6 p-2 bg-muted/20 rounded text-xs font-mono overflow-hidden max-w-full">
             <pre className="whitespace-pre-wrap break-words">{JSON.stringify(input, null, 2)}</pre>
           </div>
