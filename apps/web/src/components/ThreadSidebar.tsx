@@ -31,13 +31,14 @@ function StatusDot({ status }: { status: ThreadStatus }) {
   );
 }
 
+// Muted badge colors - let the status dot be the dominant color signal
 const MODEL_BADGES: Record<ModelType, { short: string; full: string; color: string }> = {
-  'claude-sonnet-4-5': { short: 'Sonnet', full: 'Sonnet 4.5', color: 'bg-purple-500/20 text-purple-600' },
-  'claude-opus-4-5': { short: 'Opus', full: 'Opus 4.5', color: 'bg-orange-500/20 text-orange-600' },
-  'claude-haiku-4-5': { short: 'Haiku', full: 'Haiku 4.5', color: 'bg-green-500/20 text-green-600' },
+  'claude-sonnet-4-5': { short: 'Sonnet', full: 'Sonnet 4.5', color: 'bg-muted text-muted-foreground' },
+  'claude-opus-4-5': { short: 'Opus', full: 'Opus 4.5', color: 'bg-muted text-muted-foreground' },
+  'claude-haiku-4-5': { short: 'Haiku', full: 'Haiku 4.5', color: 'bg-muted text-muted-foreground' },
 };
 
-const DEFAULT_BADGE = { short: '?', full: 'Unknown', color: 'bg-gray-500/20 text-gray-600' };
+const DEFAULT_BADGE = { short: '?', full: 'Unknown', color: 'bg-muted text-muted-foreground' };
 
 export function ThreadSidebar() {
   // Use individual selectors to avoid over-subscription
@@ -428,21 +429,28 @@ function ThreadItem({
             ) : (
               <span className="block truncate text-sm">{thread.title}</span>
             )}
-            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-              {/* Model + thinking combined badge */}
+            <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+              {/* Model badge */}
               <span className={`text-[10px] px-1.5 py-0.5 rounded ${modelBadge.color}`} title={modelBadge.full}>
-                {modelBadge.short}{thread.extendedThinking ? ' · Thinking' : ''}
+                {modelBadge.short}
               </span>
-              {/* Git branch badge */}
-              {thread.gitBranch && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-600 truncate max-w-[80px]" title={thread.gitBranch}>
-                  {thread.gitBranch}
+              {/* Thinking indicator - shown for all, strikethrough if disabled */}
+              <span
+                className={`text-[10px] px-1 py-0.5 rounded bg-muted ${thread.extendedThinking ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground/50 line-through'}`}
+                title={thread.extendedThinking ? 'Extended thinking enabled' : 'Extended thinking disabled'}
+              >
+                Thinking
+              </span>
+              {/* Sub-thread count */}
+              {hasSubThreads && (
+                <span className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground">
+                  {subThreads.length}
                 </span>
               )}
-              {/* Sub-thread count badge */}
-              {hasSubThreads && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-600">
-                  {subThreads.length} sub-thread{subThreads.length !== 1 ? 's' : ''}
+              {/* Git branch badge */}
+              {thread.gitBranch && (
+                <span className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground truncate max-w-[60px]" title={thread.gitBranch}>
+                  {thread.gitBranch}
                 </span>
               )}
             </div>
@@ -682,22 +690,29 @@ function SubThreadItem({ sub, isActive, onSelect, onStop, onArchive, onRename }:
           ) : (
             <span className="block truncate text-xs">{sub.title}</span>
           )}
-          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-            {/* Model + thinking combined badge */}
-            <span className={`text-[10px] px-1.5 py-0.5 rounded ${subModelBadge.color}`} title={subModelBadge.full}>
-              {subModelBadge.short}{sub.extendedThinking ? ' · Thinking' : ''}
+          <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+            {/* Model badge */}
+            <span className={`text-[10px] px-1 py-0.5 rounded ${subModelBadge.color}`} title={subModelBadge.full}>
+              {subModelBadge.short}
+            </span>
+            {/* Thinking indicator */}
+            <span
+              className={`text-[10px] px-1 py-0.5 rounded bg-muted ${sub.extendedThinking ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground/50 line-through'}`}
+              title={sub.extendedThinking ? 'Extended thinking enabled' : 'Extended thinking disabled'}
+            >
+              Thinking
             </span>
             {sub.gitBranch && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-600 truncate max-w-[60px]" title={sub.gitBranch}>
+              <span className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground truncate max-w-[50px]" title={sub.gitBranch}>
                 {sub.gitBranch}
               </span>
             )}
             {sub.isWorktree && (
               <span
-                className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-600"
+                className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground"
                 title={sub.worktreeBranch ? `Worktree on ${sub.worktreeBranch}` : 'Worktree'}
               >
-                Worktree
+                WT
               </span>
             )}
           </div>
@@ -771,20 +786,26 @@ function ArchivedThreadItem({ thread, onUnarchive, onSelect, isActive, isSubThre
         )}
         <div className="flex-1 min-w-0 overflow-hidden">
           <span className="block truncate text-sm max-w-[160px]">{thread.title}</span>
-          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-            {/* Model + thinking combined badge */}
-            <span className={`text-[10px] px-1.5 py-0.5 rounded ${modelBadge.color}`} title={modelBadge.full}>
-              {modelBadge.short}{thread.extendedThinking ? ' · Thinking' : ''}
+          <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+            {/* Model badge */}
+            <span className={`text-[10px] px-1 py-0.5 rounded ${modelBadge.color}`} title={modelBadge.full}>
+              {modelBadge.short}
+            </span>
+            {/* Thinking indicator */}
+            <span
+              className={`text-[10px] px-1 py-0.5 rounded bg-muted ${thread.extendedThinking ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground/50 line-through'}`}
+            >
+              Thinking
             </span>
             {/* Git branch badge for archived threads */}
             {thread.gitBranch && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-600 truncate max-w-[60px]" title={thread.gitBranch}>
+              <span className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground truncate max-w-[50px]" title={thread.gitBranch}>
                 {thread.gitBranch}
               </span>
             )}
             {isSubThread && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-600">
-                Sub-thread
+              <span className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground">
+                Sub
               </span>
             )}
           </div>
