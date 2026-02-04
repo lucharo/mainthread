@@ -42,8 +42,8 @@ dev = [
 mainthread = "mainthread.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/yourusername/mainthread"
-Repository = "https://github.com/yourusername/mainthread"
+Homepage = "https://github.com/lucharo/mainthread"
+Repository = "https://github.com/lucharo/mainthread"
 
 [build-system]
 requires = ["hatchling"]
