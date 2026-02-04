@@ -64,14 +64,14 @@ def create_spawn_thread_tool(
         # Validate model
         if model not in VALID_MODELS:
             return {
-                "content": [{"type": "text", "text": f"Invalid model '{model}'. Must be one of: {', '.join(VALID_MODELS)}"}],
+                "content": [{"type": "text", "text": f"Invalid model '{model}'. Must be one of: {', '.join(sorted(VALID_MODELS))}"}],
                 "is_error": True,
             }
 
         # Validate permission mode
         if permission_mode not in VALID_PERMISSION_MODES:
             return {
-                "content": [{"type": "text", "text": f"Invalid permission_mode '{permission_mode}'. Must be one of: {', '.join(VALID_PERMISSION_MODES)}"}],
+                "content": [{"type": "text", "text": f"Invalid permission_mode '{permission_mode}'. Must be one of: {', '.join(sorted(VALID_PERMISSION_MODES))}"}],
                 "is_error": True,
             }
 
