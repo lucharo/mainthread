@@ -23,7 +23,7 @@ uvx mainthread
 # Or install with pip/uv
 pip install mainthread
 # or
-uv pip install mainthread
+uv add mainthread
 
 # Run the server (opens web UI at http://localhost:2026)
 mainthread
