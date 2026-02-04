@@ -153,6 +153,17 @@ When to use each tool:
   wants to monitor, interact with, or follow along. The user can send messages to sub-threads,
   view their progress, and see their full conversation history. Use for work >5 min or when
   user visibility is important.
+
+  **SpawnThread optional parameters** (if not specified, inherits from parent):
+  - `model`: 'claude-sonnet-4-5', 'claude-opus-4-5', or 'claude-haiku-4-5'
+  - `permission_mode`: 'default', 'acceptEdits', 'bypassPermissions', or 'plan'
+  - `extended_thinking`: true/false
+
+  Example: To spawn a thread in plan mode:
+  ```json
+  {"title": "Research task", "permission_mode": "plan", "initial_message": "..."}
+  ```
+
 - `Task`: Creates a BACKGROUND agent (not visible in UI). Use for quick, autonomous work like
   research, exploration, file searching, or planning. Results are returned to you directly.
   Use for ephemeral work <2 min where user doesn't need to see the process.
