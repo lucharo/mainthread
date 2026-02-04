@@ -125,6 +125,17 @@ async def lifespan(app: FastAPI):
     sse_event_store.clear()
     clear_all_tasks()
     reset_agent_state()
+
+    # Reset any stale pending threads to active (from previous server instance)
+    try:
+        all_threads = get_all_threads(include_archived=False)
+        for thread in all_threads:
+            if thread.get("status") == "pending":
+                logger.debug(f"Resetting stale pending thread {thread['id']} to active")
+                update_thread_status(thread["id"], "active")
+    except Exception as e:
+        logger.warning(f"Failed to reset stale pending threads: {e}")
+
     logger.info("MainThread API started - asyncio state reset")
     yield
     # Shutdown: cleanup
