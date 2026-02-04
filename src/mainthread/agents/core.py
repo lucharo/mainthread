@@ -430,7 +430,7 @@ async def run_agent(
     system_prompt = build_system_prompt(thread)
     thread_id = thread["id"]
 
-    model = thread.get("model", "claude-sonnet-4-5")
+    model = thread.get("model", "claude-opus-4-5")
     permission = thread.get("permissionMode", "acceptEdits")
 
     # Determine tools based on thread type

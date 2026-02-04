@@ -551,7 +551,7 @@ export function ChatPanel() {
       {/* Modals */}
       <CreateSubThreadModal
         isOpen={showSpawnModal}
-        parentModel={activeThread?.model || 'claude-sonnet-4-5'}
+        parentModel={activeThread?.model || 'claude-opus-4-5'}
         parentPermissionMode={activeThread?.permissionMode || 'acceptEdits'}
         onSubmit={handleSpawnThread}
         onCancel={() => setShowSpawnModal(false)}

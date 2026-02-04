@@ -749,7 +749,7 @@ class CreateThreadRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     parentId: str | None = Field(None, pattern=r"^[a-f0-9-]{36}$")
     workDir: str | None = None
-    model: ModelType = "claude-sonnet-4-5"
+    model: ModelType = "claude-opus-4-5"
     extendedThinking: bool = True
     permissionMode: PermissionMode = "acceptEdits"  # Default to acceptEdits (like Claude Code build mode)
 

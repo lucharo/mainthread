@@ -37,7 +37,7 @@ interface SettingsState extends AppSettings {
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
-  defaultModel: 'claude-sonnet-4-5',
+  defaultModel: 'claude-opus-4-5',
   defaultPermissionMode: 'acceptEdits',
   defaultExtendedThinking: true,
   defaultAutoReact: true,
