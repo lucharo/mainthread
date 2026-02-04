@@ -27,13 +27,34 @@ type StreamingBlockGroup =
   | { type: 'single'; block: StreamingBlock }
   | { type: 'tool_group'; blocks: StreamingBlock[] };
 
+// Check if a tool name is SpawnThread (should be rendered separately)
+function isSpawnThreadTool(name: string | undefined): boolean {
+  if (!name) return false;
+  // Handle MCP naming like mcp__mainthread__SpawnThread
+  const cleanName = name.includes('__') ? name.split('__').pop() || name : name;
+  return cleanName === 'SpawnThread';
+}
+
 // Group consecutive tool_use blocks together for accumulating display
+// SpawnThread tools always get their own single block (not grouped)
 function groupStreamingBlocks(blocks: StreamingBlock[]): StreamingBlockGroup[] {
   const groups: StreamingBlockGroup[] = [];
   let currentToolGroup: StreamingBlock[] = [];
 
   for (const block of blocks) {
-    if (block.type === 'tool_use') {
+    // SpawnThread tools always get their own single block
+    if (block.type === 'tool_use' && isSpawnThreadTool(block.name)) {
+      // Flush any pending tool group first
+      if (currentToolGroup.length > 0) {
+        groups.push(
+          currentToolGroup.length === 1
+            ? { type: 'single', block: currentToolGroup[0] }
+            : { type: 'tool_group', blocks: currentToolGroup }
+        );
+        currentToolGroup = [];
+      }
+      groups.push({ type: 'single', block });
+    } else if (block.type === 'tool_use') {
       currentToolGroup.push(block);
     } else {
       // Flush any pending tool group
@@ -490,12 +511,14 @@ export function ChatPanel() {
         )}
 
         {/* Streaming blocks - grouped for accumulating tool display */}
-        {activeThreadId && groupStreamingBlocks(currentStreamingBlocks).map((group, groupIndex) => {
+        {activeThreadId && groupStreamingBlocks(currentStreamingBlocks).map((group) => {
           if (group.type === 'single') {
             const block = group.block;
+            // Use block id or timestamp as stable key
+            const stableKey = block.id || `block-${block.timestamp}`;
             return (
               <StreamingBlockRenderer
-                key={`block-${block.timestamp}-${groupIndex}`}
+                key={stableKey}
                 block={block}
                 threadId={activeThreadId}
                 expandedBlockId={currentExpandedBlockId}
@@ -504,13 +527,16 @@ export function ChatPanel() {
             );
           } else {
             // Render tool group using ToolHistoryBlock
+            // Use first block's id/timestamp as stable key for the group
+            const firstBlock = group.blocks[0];
+            const groupKey = `tool-group-${firstBlock.id || firstBlock.timestamp}`;
             const tools = group.blocks.map((b) => ({
               name: b.name || 'unknown',
               input: b.input,
               id: b.id,
               isComplete: b.isComplete ?? false,
             }));
-            return <ToolHistoryBlock key={`tool-group-${groupIndex}`} tools={tools} />;
+            return <ToolHistoryBlock key={groupKey} tools={tools} />;
           }
         })}
 
