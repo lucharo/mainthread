@@ -230,11 +230,10 @@ Key information from the previous conversation is summarized below.
 - Parent thread: {parent_id or 'None (this is a main thread)'}
 
 ## Available Tools Reminder
-{
-    "Main thread tools: SpawnThread, ListThreads, ReadThread, "
-    "ArchiveThread, SendToThread, Task"
+Thread tools: SpawnThread, ListThreads, ReadThread, ArchiveThread, SendToThread, Task{
+    ""
     if not parent_id
-    else "Sub-thread tools: SignalStatus, Task"
+    else ", SignalStatus (to notify parent when done or blocked)"
 }
 """
 
@@ -478,42 +477,42 @@ async def run_agent(
     # Create MCP server config for custom tools
     mcp_servers = {}
 
-    if not thread.get("parentId"):
-        # Main thread: delegation tools
-        spawn_tool = create_spawn_thread_tool(
-            parent_thread_id=thread_id,
-            parent_model=model,
-            parent_permission_mode=permission,
-            parent_extended_thinking=thread.get("extendedThinking", True),
-        )
-        list_threads_tool = create_list_threads_tool()
-        archive_thread_tool = create_archive_thread_tool()
-        read_thread_tool = create_read_thread_tool()
-        send_to_thread_tool = create_send_to_thread_tool(thread_id)
-        mainthread_server = create_sdk_mcp_server(
-            name="mainthread",
-            version="1.0.0",
-            tools=[
-                spawn_tool,
-                list_threads_tool,
-                archive_thread_tool,
-                read_thread_tool,
-                send_to_thread_tool,
-            ],
-        )
-        mcp_servers["mainthread"] = mainthread_server
-        allowed_tools.extend(
-            [
-                "mcp__mainthread__SpawnThread",
-                "mcp__mainthread__ListThreads",
-                "mcp__mainthread__ArchiveThread",
-                "mcp__mainthread__ReadThread",
-                "mcp__mainthread__SendToThread",
-                "Task",
-            ]
-        )
-    else:
-        # Sub-thread: status signaling tool (needs parent ID to notify)
+    # All threads get delegation tools (enables nested sub-threads)
+    spawn_tool = create_spawn_thread_tool(
+        parent_thread_id=thread_id,
+        parent_model=model,
+        parent_permission_mode=permission,
+        parent_extended_thinking=thread.get("extendedThinking", True),
+    )
+    list_threads_tool = create_list_threads_tool()
+    archive_thread_tool = create_archive_thread_tool()
+    read_thread_tool = create_read_thread_tool()
+    send_to_thread_tool = create_send_to_thread_tool(thread_id)
+    mainthread_server = create_sdk_mcp_server(
+        name="mainthread",
+        version="1.0.0",
+        tools=[
+            spawn_tool,
+            list_threads_tool,
+            archive_thread_tool,
+            read_thread_tool,
+            send_to_thread_tool,
+        ],
+    )
+    mcp_servers["mainthread"] = mainthread_server
+    allowed_tools.extend(
+        [
+            "mcp__mainthread__SpawnThread",
+            "mcp__mainthread__ListThreads",
+            "mcp__mainthread__ArchiveThread",
+            "mcp__mainthread__ReadThread",
+            "mcp__mainthread__SendToThread",
+            "Task",
+        ]
+    )
+
+    # Sub-threads also get SignalStatus to notify their parent
+    if thread.get("parentId"):
         parent_id = thread.get("parentId")
         signal_status_tool = create_signal_status_tool(
             parent_thread_id=parent_id,
@@ -525,7 +524,7 @@ async def run_agent(
             tools=[signal_status_tool],
         )
         mcp_servers["subthread"] = subthread_server
-        allowed_tools.extend(["mcp__subthread__SignalStatus", "Task"])
+        allowed_tools.append("mcp__subthread__SignalStatus")
 
     permission_handler = create_permission_handler(
         thread_id, question_callback, work_dir=thread.get("workDir")
