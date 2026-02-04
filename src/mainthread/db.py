@@ -629,7 +629,7 @@ def get_thread_messages_formatted(thread_id: str, limit: int = 50) -> dict[str, 
     """
     # Validate and clamp limit
     if limit <= 0:
-        limit = 50
+        limit = 200
     elif limit > MAX_THREAD_MESSAGES_LIMIT:
         limit = MAX_THREAD_MESSAGES_LIMIT
 

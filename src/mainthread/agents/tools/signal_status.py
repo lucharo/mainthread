@@ -4,11 +4,15 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
+from mainthread.agents.registry import get_registry
 
-def create_signal_status_tool():
+
+def create_signal_status_tool(parent_thread_id: str, child_thread_id: str):
     """Create the SignalStatus tool for sub-threads to signal completion status.
 
-    This replaces the fragile [BLOCKED]/[DONE] text markers with a structured tool call.
+    Args:
+        parent_thread_id: ID of the parent thread to notify
+        child_thread_id: ID of this sub-thread (for identification in notifications)
     """
 
     @tool(
@@ -29,6 +33,21 @@ def create_signal_status_tool():
                 ],
                 "is_error": True,
             }
+
+        # Actually notify the parent thread via registry
+        registry = get_registry()
+        if registry.broadcast_status_signal:
+            try:
+                await registry.broadcast_status_signal(
+                    parent_thread_id, child_thread_id, status, reason
+                )
+            except Exception as e:
+                return {
+                    "content": [
+                        {"type": "text", "text": f"Failed to signal parent: {e}"}
+                    ],
+                    "is_error": True,
+                }
 
         status_msg = "completed" if status == "done" else "blocked and needs attention"
         return {

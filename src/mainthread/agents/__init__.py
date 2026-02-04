@@ -87,6 +87,11 @@ def register_send_to_thread_callback(callback) -> None:
     get_registry().send_to_thread = callback
 
 
+def register_broadcast_status_signal_callback(callback) -> None:
+    """Register the callback for SignalStatus broadcasts to parent threads."""
+    get_registry().broadcast_status_signal = callback
+
+
 def reset_agent_state() -> None:
     """Reset agent state for hot reload."""
     reset_registry()
@@ -131,6 +136,7 @@ __all__ = [
     "register_broadcast_subagent_stop_callback",
     "register_broadcast_plan_approval_callback",
     "register_send_to_thread_callback",
+    "register_broadcast_status_signal_callback",
     "reset_agent_state",
     "set_pending_answer",
     "clear_pending_question",

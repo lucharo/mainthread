@@ -15,7 +15,7 @@ def create_read_thread_tool():
         "Read a thread's conversation history to understand context or review results. "
         "Use this AFTER receiving a notification that a sub-thread completed, to see the detailed results. "
         "NOTE: You do NOT need to poll sub-threads - they automatically notify when done or blocked. "
-        "Parameters: thread_id (required), limit (optional, default 50, max 1000 - number of recent messages to retrieve).",
+        "Parameters: thread_id (required), limit (optional, default 200, max 1000 - number of recent messages to retrieve).",
         {"thread_id": str, "limit": int},
     )
     async def read_thread(args: dict[str, Any]) -> dict[str, Any]:
@@ -29,7 +29,7 @@ def create_read_thread_tool():
 
         try:
             thread_id = args["thread_id"]
-            limit = args.get("limit", 50)
+            limit = args.get("limit", 200)
             result = await registry.read_thread(thread_id, limit)
 
             if result is None:

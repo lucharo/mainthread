@@ -24,6 +24,7 @@ from mainthread.agents import (
     register_archive_thread_callback,
     register_broadcast_plan_approval_callback,
     register_broadcast_question_callback,
+    register_broadcast_status_signal_callback,
     register_broadcast_subagent_stop_callback,
     register_create_thread_callback,
     register_list_threads_callback,
@@ -752,6 +753,39 @@ async def broadcast_subagent_stop_to_thread(thread_id: str, event_data: dict[str
     })
 
 
+async def broadcast_status_signal_to_parent(
+    parent_thread_id: str,
+    child_thread_id: str,
+    status: str,
+    reason: str,
+) -> None:
+    """Broadcast a status signal from a child thread to its parent.
+
+    This is called when a sub-thread calls SignalStatus to notify
+    its parent that it's done or needs attention.
+    """
+    # Get child thread info for the notification
+    child_thread = get_thread(child_thread_id)
+    child_title = child_thread.get("title", "Unknown") if child_thread else "Unknown"
+
+    # Update the child thread's status
+    new_status = "done" if status == "done" else "needs_attention"
+    update_thread_status(child_thread_id, new_status)
+
+    # Broadcast to parent thread subscribers
+    await broadcast_to_thread(parent_thread_id, {
+        "type": "subthread_status",
+        "data": {
+            "threadId": child_thread_id,
+            "title": child_title,
+            "status": new_status,
+            "reason": reason,
+        },
+    })
+
+    logger.info(f"Sub-thread {child_thread_id} signaled '{status}' to parent {parent_thread_id}: {reason}")
+
+
 async def send_to_thread_for_agent(
     target_thread_id: str,
     message: str,
@@ -802,6 +836,7 @@ register_archive_thread_callback(archive_thread_for_agent)
 register_run_thread_callback(run_thread_for_agent)
 register_read_thread_callback(read_thread_for_agent)
 register_broadcast_subagent_stop_callback(broadcast_subagent_stop_to_thread)
+register_broadcast_status_signal_callback(broadcast_status_signal_to_parent)
 register_send_to_thread_callback(send_to_thread_for_agent)
 
 

@@ -502,8 +502,12 @@ async def run_agent(
             ]
         )
     else:
-        # Sub-thread: status signaling tool
-        signal_status_tool = create_signal_status_tool()
+        # Sub-thread: status signaling tool (needs parent ID to notify)
+        parent_id = thread.get("parentId")
+        signal_status_tool = create_signal_status_tool(
+            parent_thread_id=parent_id,
+            child_thread_id=thread_id,
+        )
         subthread_server = create_sdk_mcp_server(
             name="subthread",
             version="1.0.0",

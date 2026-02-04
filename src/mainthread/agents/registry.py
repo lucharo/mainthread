@@ -35,6 +35,7 @@ class ServiceRegistry:
     broadcast_question: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None
     broadcast_subagent_stop: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None
     broadcast_plan_approval: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None
+    broadcast_status_signal: Callable[[str, str, str, str], Awaitable[None]] | None = None  # parent_id, child_id, status, reason
 
     # Question handling state
     _pending_questions: dict[str, tuple[asyncio.Event, dict[str, str] | None]] = field(
