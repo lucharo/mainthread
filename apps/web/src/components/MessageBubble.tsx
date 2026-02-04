@@ -383,6 +383,7 @@ export function StreamingToolBlock({
   toolUseId,
   isCollapsed,
   isError,
+  submittedAnswers,
 }: {
   name?: string;
   input?: Record<string, unknown>;
@@ -390,6 +391,7 @@ export function StreamingToolBlock({
   toolUseId?: string;
   isCollapsed?: boolean;
   isError?: boolean;
+  submittedAnswers?: Record<string, string>;
 }) {
   // Only subscribe to threads/spawnedThreadIds for SpawnThread to avoid unnecessary re-renders
   const isSpawnThread = isSpawnThreadTool(name);
@@ -421,7 +423,23 @@ export function StreamingToolBlock({
     );
   }
 
-  // Hide input for AskUserQuestion since it has its own UI (InlineQuestionBlock)
-  const hideInput = name === 'AskUserQuestion';
-  return <ToolBlock name={name} input={hideInput ? undefined : input} isComplete={isComplete} isCollapsed={isCollapsed} isError={isError} />;
+  // AskUserQuestion: Show submitted answers or collapse while waiting
+  if (name === 'AskUserQuestion') {
+    // Format answers for display after submission
+    const answerDisplay = submittedAnswers
+      ? Object.entries(submittedAnswers).map(([, a]) => a).join(', ')
+      : null;
+    return (
+      <ToolBlock
+        name={name}
+        input={answerDisplay ? { 'Your answers': answerDisplay } : undefined}
+        isComplete={isComplete || !!submittedAnswers}
+        // Start collapsed while waiting for input (InlineQuestionBlock is the main UI)
+        isCollapsed={!submittedAnswers ? true : isCollapsed}
+        isError={isError}
+      />
+    );
+  }
+
+  return <ToolBlock name={name} input={input} isComplete={isComplete} isCollapsed={isCollapsed} isError={isError} />;
 }

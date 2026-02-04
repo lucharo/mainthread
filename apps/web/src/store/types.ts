@@ -80,6 +80,8 @@ export interface StreamingBlock {
   // Error state - tool execution failed
   isError?: boolean;
   errorMessage?: string;
+  // AskUserQuestion: submitted answers (for display after user responds)
+  submittedAnswers?: Record<string, string>;
   // Plan approval block fields
   planFilePath?: string;
   planContent?: string;

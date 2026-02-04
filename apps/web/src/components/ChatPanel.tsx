@@ -102,6 +102,7 @@ function StreamingBlockRenderer({
           toolUseId={block.id}
           isCollapsed={block.isCollapsed}
           isError={block.isError}
+          submittedAnswers={block.submittedAnswers}
         />
       );
     default:

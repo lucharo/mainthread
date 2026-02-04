@@ -1249,6 +1249,22 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       const errorData = await res.json().catch(() => ({}));
       throw new Error(errorData.detail || `HTTP ${res.status}: ${res.statusText}`);
     }
+    // Store submitted answers in the AskUserQuestion tool block for display
+    set((state) => {
+      const blocks = state.streamingBlocks[threadId] || [];
+      // Find the most recent AskUserQuestion tool block that doesn't have answers yet
+      const updatedBlocks = [...blocks];
+      for (let i = updatedBlocks.length - 1; i >= 0; i--) {
+        const block = updatedBlocks[i];
+        if (block.type === 'tool_use' && block.name === 'AskUserQuestion' && !block.submittedAnswers) {
+          updatedBlocks[i] = { ...block, submittedAnswers: answers, isComplete: true };
+          break;
+        }
+      }
+      return {
+        streamingBlocks: { ...state.streamingBlocks, [threadId]: updatedBlocks },
+      };
+    });
     // Clear the pending question after successful answer submission
     get().clearPendingQuestion(threadId);
   },
