@@ -263,7 +263,7 @@ export function ChatPanel() {
     | { type: 'notification'; data: ThreadNotification; timestamp: string };
 
   // Get set of thread IDs spawned via SpawnThread tool (to avoid duplicate notifications)
-  const spawnedThreadIdSet = useMemo(() => new Set(Object.values(spawnedThreadIds)), [spawnedThreadIds]);
+  const spawnedThreadIdSet = useMemo(() => new Set(Object.values(spawnedThreadIds || {})), [spawnedThreadIds]);
 
   const timelineItems = useMemo<TimelineItem[]>(() => {
     // Filter out "thread created" notifications for threads spawned via SpawnThread

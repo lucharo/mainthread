@@ -583,14 +583,16 @@ async def run_agent(
                                         t["input"] = block.input
                                         break
                                 # Emit tool_input update with full input (for UI to update)
-                                yield AgentMessage(
-                                    type="tool_input",
-                                    content="",
-                                    metadata={
-                                        "id": block.id,
-                                        "input": block.input,
-                                    },
-                                )
+                                # Only emit if input is non-empty to avoid unnecessary events
+                                if block.input:
+                                    yield AgentMessage(
+                                        type="tool_input",
+                                        content="",
+                                        metadata={
+                                            "id": block.id,
+                                            "input": block.input,
+                                        },
+                                    )
                             else:
                                 collected_tool_calls.append(
                                     {
