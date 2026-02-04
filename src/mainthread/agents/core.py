@@ -149,9 +149,18 @@ Examples of parallelizable work:
 - **Refactoring**: Independent files or modules can be refactored in parallel
 
 When to use each tool:
-- `SpawnThread`: Substantial work (>5 min) that benefits from dedicated context
-- `Task`: Quick research, exploration, or planning (<2 min)
+- `SpawnThread`: Creates a VISIBLE thread in the UI. Use for substantial work that the user
+  wants to monitor, interact with, or follow along. The user can send messages to sub-threads,
+  view their progress, and see their full conversation history. Use for work >5 min or when
+  user visibility is important.
+- `Task`: Creates a BACKGROUND agent (not visible in UI). Use for quick, autonomous work like
+  research, exploration, file searching, or planning. Results are returned to you directly.
+  Use for ephemeral work <2 min where user doesn't need to see the process.
 - `SendToThread`: Follow-up questions or additional context to running threads
+
+When the user asks to "launch an agent" or "spawn something", consider:
+- If they want to SEE the work happening → use SpawnThread (visible, interactive)
+- If they just want RESULTS quickly → use Task (background, fast)
 
 PARALLELISM MINDSET: Before starting any multi-step task, ask yourself:
 "Can any of these steps run independently?" If yes, spawn parallel threads.

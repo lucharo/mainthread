@@ -509,14 +509,10 @@ async def create_thread_for_agent(
     # Store worktree info in thread metadata for response messages
     thread["_worktree_info"] = worktree_info
 
-    # Notify parent thread subscribers about the new sub-thread
-    # Only broadcast to parent, not all threads
-    if parent_id and parent_id in thread_subscribers:
-        for queue in thread_subscribers[parent_id]:
-            await queue.put({
-                "type": "thread_created",
-                "data": {"thread": thread},
-            })
+    # Note: We don't broadcast thread_created here because SpawnThreadBlock
+    # already displays the created thread inline. Broadcasting would cause
+    # duplicate display (both SpawnThreadBlock AND ThreadCreatedNotification).
+    # The frontend auto-subscribes to new sub-threads via the tool_result event.
 
     return thread
 
