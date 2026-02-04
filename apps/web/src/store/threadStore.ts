@@ -298,6 +298,18 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       });
 
       if (!res.ok) {
+        // 499 = user cancelled (pressed escape) - not an error, just silently return
+        if (res.status === 499) {
+          // Remove temp message and reset thread status
+          set((state) => ({
+            threads: state.threads.map((t) =>
+              t.id === threadId
+                ? { ...t, messages: t.messages.filter((m) => m.id !== tempId), status: 'active' as ThreadStatus }
+                : t,
+            ),
+          }));
+          return; // Silent return - no error
+        }
         const errorData = await res.json().catch(() => ({}));
         const detail = errorData.detail || res.statusText;
         const errorType = errorData.type ? ` [${errorData.type}]` : '';
