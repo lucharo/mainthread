@@ -520,10 +520,16 @@ async def create_thread_for_agent(
     # Store worktree info in thread metadata for response messages
     thread["_worktree_info"] = worktree_info
 
-    # Note: We don't broadcast thread_created here because SpawnThreadBlock
-    # already displays the created thread inline. Broadcasting would cause
-    # duplicate display (both SpawnThreadBlock AND ThreadCreatedNotification).
-    # The frontend auto-subscribes to new sub-threads via the tool_result event.
+    # Broadcast thread_created to parent thread so frontend gets full thread data
+    # (including permissionMode). The frontend filters out duplicate notifications
+    # for SpawnThread-created threads, so this won't cause duplicate UI display.
+    if parent_id:
+        # Create a clean copy without internal metadata
+        thread_data = {k: v for k, v in thread.items() if not k.startswith("_")}
+        asyncio.create_task(broadcast_to_thread(parent_id, {
+            "type": "thread_created",
+            "data": {"thread": thread_data},
+        }))
 
     return thread
 

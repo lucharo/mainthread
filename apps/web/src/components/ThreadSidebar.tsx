@@ -441,6 +441,23 @@ function ThreadItem({
               >
                 Thinking
               </span>
+              {/* Permission mode badge - only show for notable modes */}
+              {thread.permissionMode === 'plan' && (
+                <span
+                  className="text-[10px] px-1 py-0.5 rounded bg-blue-500/20 text-blue-600 dark:text-blue-400"
+                  title="Plan mode - requires approval before execution"
+                >
+                  Plan
+                </span>
+              )}
+              {thread.permissionMode === 'bypassPermissions' && (
+                <span
+                  className="text-[10px] px-1 py-0.5 rounded bg-red-500/20 text-red-600"
+                  title="Bypass mode - no permission prompts"
+                >
+                  Bypass
+                </span>
+              )}
               {/* Sub-thread count */}
               {hasSubThreads && (
                 <span className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground">
@@ -702,6 +719,23 @@ function SubThreadItem({ sub, isActive, onSelect, onStop, onArchive, onRename }:
             >
               Thinking
             </span>
+            {/* Permission mode badge - only show for notable modes */}
+            {sub.permissionMode === 'plan' && (
+              <span
+                className="text-[10px] px-1 py-0.5 rounded bg-blue-500/20 text-blue-600 dark:text-blue-400"
+                title="Plan mode - requires approval before execution"
+              >
+                Plan
+              </span>
+            )}
+            {sub.permissionMode === 'bypassPermissions' && (
+              <span
+                className="text-[10px] px-1 py-0.5 rounded bg-red-500/20 text-red-600"
+                title="Bypass mode - no permission prompts"
+              >
+                Bypass
+              </span>
+            )}
             {sub.gitBranch && (
               <span className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground truncate max-w-[50px]" title={sub.gitBranch}>
                 {sub.gitBranch}

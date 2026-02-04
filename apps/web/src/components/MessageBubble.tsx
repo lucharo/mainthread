@@ -54,11 +54,29 @@ function formatToolSummary(
   return truncateContent(summary, 100);
 }
 
-// Check if input has meaningful content to display
-function hasExpandableContent(input: Record<string, unknown> | undefined): boolean {
+// Check if input has meaningful content to display (beyond what's shown in summary)
+function hasExpandableContent(name: string | undefined, input: Record<string, unknown> | undefined): boolean {
   if (!input) return false;
   const keys = Object.keys(input);
   if (keys.length === 0) return false;
+
+  // For file operations, the summary already shows the path - only expand if there's more to show
+  switch (name) {
+    case 'Write':
+      // Write shows file_path in summary - content is usually too large to be useful
+      return false;
+    case 'Read':
+      // Read shows file_path in summary - expanded content isn't useful
+      return false;
+    case 'EnterPlanMode':
+    case 'ExitPlanMode':
+    case 'TaskList':
+      // These tools have no meaningful content to expand
+      return false;
+    default:
+      break;
+  }
+
   // Check if all values are empty/null/undefined
   return keys.some(k => {
     const val = input[k];
@@ -81,8 +99,8 @@ function ToolBlock({
   isCollapsed?: boolean;
   isError?: boolean;
 }) {
-  // Check if there's content worth expanding
-  const canExpand = hasExpandableContent(input);
+  // Check if there's content worth expanding (beyond the summary)
+  const canExpand = hasExpandableContent(name, input);
   // Local state for manual toggle, but starts from FIFO state
   const [isExpanded, setIsExpanded] = useState(!isCollapsed && canExpand);
   const summary = formatToolSummary(name, input);
@@ -174,7 +192,7 @@ function ToolBlock({
             </svg>
           )}
         </button>
-        {isExpanded && input && hasExpandableContent(input) && (
+        {isExpanded && input && hasExpandableContent(name, input) && (
           <div className="mt-1 ml-6 p-2 bg-muted/20 rounded text-xs font-mono overflow-hidden max-w-full">
             <pre className="whitespace-pre-wrap break-words">{JSON.stringify(input, null, 2)}</pre>
           </div>
