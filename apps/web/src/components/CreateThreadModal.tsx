@@ -98,8 +98,8 @@ function formatPathForDisplay(path: string, short = false): string {
 }
 
 const MODEL_OPTIONS: { value: ModelType; label: string; description: string }[] = [
-  { value: 'claude-sonnet-4-5', label: 'Sonnet 4.5', description: 'Fast and capable' },
   { value: 'claude-opus-4-5', label: 'Opus 4.5', description: 'Most powerful' },
+  { value: 'claude-sonnet-4-5', label: 'Sonnet 4.5', description: 'Fast and capable' },
   { value: 'claude-haiku-4-5', label: 'Haiku 4.5', description: 'Quick responses' },
 ];
 
