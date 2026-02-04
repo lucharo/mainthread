@@ -7,10 +7,10 @@ interface ThreadCreatedNotificationProps {
 
 export function ThreadCreatedNotification({ notification, onNavigate }: ThreadCreatedNotificationProps) {
   return (
-    <div className="my-2">
+    <div className="flex justify-start my-2">
       <button
         onClick={() => onNavigate(notification.threadId)}
-        className="w-full flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-200/50 dark:hover:bg-gray-700/50 transition-colors"
+        className="max-w-[50%] flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-200/50 dark:hover:bg-gray-700/50 transition-colors"
       >
         {/* Status indicator - purple plus for created */}
         <span className="w-5 h-5 rounded-full flex items-center justify-center text-white text-xs flex-shrink-0 bg-purple-500">

@@ -8,11 +8,18 @@ import type { ToolUse } from './ToolUseBlock';
 
 interface ToolHistoryBlockProps {
   tools: ToolUse[];
+  onNavigateToThread?: (threadId: string) => void;
 }
 
-export function ToolHistoryBlock({ tools }: ToolHistoryBlockProps) {
+export function ToolHistoryBlock({ tools, onNavigateToThread }: ToolHistoryBlockProps) {
   const [expanded, setExpanded] = useState(false);
   const threads = useThreadStore((state) => state.threads);
+
+  // Helper to find thread by title (for SpawnThread navigation)
+  const findThreadByTitle = (title: string): string | null => {
+    const thread = threads.find((t) => t.title === title);
+    return thread?.id || null;
+  };
 
   // Helper to get thread title by ID
   const getThreadTitle = (threadId: string): string | null => {
@@ -146,6 +153,8 @@ export function ToolHistoryBlock({ tools }: ToolHistoryBlockProps) {
                 key={tool.id || index}
                 tool={tool}
                 getThreadTitle={getThreadTitle}
+                findThreadByTitle={findThreadByTitle}
+                onNavigateToThread={onNavigateToThread}
               />
             ))}
           </div>
@@ -158,9 +167,13 @@ export function ToolHistoryBlock({ tools }: ToolHistoryBlockProps) {
 function ToolHistoryItem({
   tool,
   getThreadTitle,
+  findThreadByTitle,
+  onNavigateToThread,
 }: {
   tool: ToolUse;
   getThreadTitle: (id: string) => string | null;
+  findThreadByTitle: (title: string) => string | null;
+  onNavigateToThread?: (threadId: string) => void;
 }) {
   const [showInput, setShowInput] = useState(false);
   // Check if input is non-empty and not just an empty object {}
@@ -168,60 +181,86 @@ function ToolHistoryItem({
   const hasMeaningfulInput = hasInput && JSON.stringify(tool.input) !== '{}';
   const preview = getToolPreview(tool.name, tool.input, { maxLength: 45, getThreadTitle });
 
+  // For SpawnThread, find the thread ID by title
+  const isSpawnThread = tool.name === 'SpawnThread';
+  const spawnedThreadTitle = isSpawnThread && tool.input?.title ? String(tool.input.title) : null;
+  const spawnedThreadId = spawnedThreadTitle ? findThreadByTitle(spawnedThreadTitle) : null;
+
+  const handleNavigate = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (spawnedThreadId && onNavigateToThread) {
+      onNavigateToThread(spawnedThreadId);
+    }
+  };
+
   return (
     <div className="border-b border-gray-200/50 dark:border-gray-700/50 last:border-b-0">
-      <button
-        onClick={() => hasMeaningfulInput && setShowInput(!showInput)}
-        className={`w-full flex items-center gap-2 px-4 py-1.5 text-sm ${hasMeaningfulInput ? 'cursor-pointer hover:bg-gray-200/30 dark:hover:bg-gray-700/30' : 'cursor-default'}`}
-        disabled={!hasMeaningfulInput}
-      >
-        {tool.isComplete ? (
-          <span className="text-green-600 dark:text-green-400 text-xs w-4 flex-shrink-0">✓</span>
-        ) : (
-          <svg
-            className="w-3 h-3 text-gray-500 animate-spin flex-shrink-0"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-            />
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-            />
-          </svg>
-        )}
-        <span className="font-mono text-xs text-gray-600 dark:text-gray-400 flex-shrink-0">
-          {formatToolName(tool.name)}
-        </span>
-        {preview && (
-          <span className="text-xs text-gray-500 dark:text-gray-400 truncate flex-1 text-left font-mono">
-            {preview}
+      <div className="flex items-center">
+        <button
+          onClick={() => hasMeaningfulInput && setShowInput(!showInput)}
+          className={`flex-1 flex items-center gap-2 px-4 py-1.5 text-sm ${hasMeaningfulInput ? 'cursor-pointer hover:bg-gray-200/30 dark:hover:bg-gray-700/30' : 'cursor-default'}`}
+          disabled={!hasMeaningfulInput}
+        >
+          {tool.isComplete ? (
+            <span className="text-green-600 dark:text-green-400 text-xs w-4 flex-shrink-0">✓</span>
+          ) : (
+            <svg
+              className="w-3 h-3 text-gray-500 animate-spin flex-shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+              />
+            </svg>
+          )}
+          <span className="font-mono text-xs text-gray-600 dark:text-gray-400 flex-shrink-0">
+            {formatToolName(tool.name)}
           </span>
-        )}
-        {hasMeaningfulInput && (
-          <svg
-            className={`w-3 h-3 text-gray-400 flex-shrink-0 transition-transform duration-200 ${showInput ? 'rotate-180' : ''}`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+          {preview && (
+            <span className="text-xs text-gray-500 dark:text-gray-400 truncate flex-1 text-left font-mono">
+              {preview}
+            </span>
+          )}
+          {hasMeaningfulInput && !isSpawnThread && (
+            <svg
+              className={`w-3 h-3 text-gray-400 flex-shrink-0 transition-transform duration-200 ${showInput ? 'rotate-180' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 9l-7 7-7-7"
+              />
+            </svg>
+          )}
+        </button>
+        {/* Jump to thread button for SpawnThread */}
+        {isSpawnThread && spawnedThreadId && onNavigateToThread && (
+          <button
+            onClick={handleNavigate}
+            className="px-2 py-1 mr-2 text-xs text-primary hover:bg-primary/10 rounded transition-colors flex items-center gap-1"
+            title="Jump to thread"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M19 9l-7 7-7-7"
-            />
-          </svg>
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
         )}
-      </button>
+      </div>
       {showInput && hasMeaningfulInput && (
         <div className="px-4 pb-2 text-xs text-gray-500 dark:text-gray-500 overflow-hidden max-w-full">
           <pre className="whitespace-pre-wrap break-words font-mono leading-relaxed bg-gray-200/50 dark:bg-gray-900/50 p-2 rounded">

@@ -274,7 +274,7 @@ class MessageStreamProcessor:
 
     async def process_message(self, msg) -> None:
         """Process a single message from the agent stream."""
-        logger.info(f"[MSG] type={msg.type}, metadata={msg.metadata}")
+        logger.debug(f"[MSG] type={msg.type}, metadata={msg.metadata}")
         if msg.type == "text":
             # SIMPLIFIED: Mark all pending tools complete when text starts
             # (Claude is responding, so all tool calls must have finished)
@@ -282,7 +282,7 @@ class MessageStreamProcessor:
                 if block.get("type") == "tool_use" and not block.get("isComplete"):
                     prev_id = block.get("id")
                     block["isComplete"] = True
-                    logger.info(f"[SSE] text: auto-completing tool {prev_id}")
+                    logger.debug(f"[SSE] text: auto-completing tool {prev_id}")
                     await broadcast_to_thread(self.thread_id, {
                         "type": "tool_result",
                         "data": {"tool_use_id": prev_id},
@@ -325,7 +325,7 @@ class MessageStreamProcessor:
             tool_data = msg.metadata or {}
             tool_id = tool_data.get("id")
             tool_name = tool_data.get("tool") or tool_data.get("name")
-            logger.info(f"[SSE] tool_use: name={tool_name}, id={tool_id}")
+            logger.debug(f"[SSE] tool_use: name={tool_name}, id={tool_id}")
 
             # SIMPLIFIED: Mark ALL previous tools as complete when a new tool starts
             # (If Claude is calling tool #2, tool #1 must have finished)
@@ -333,7 +333,7 @@ class MessageStreamProcessor:
                 if block.get("type") == "tool_use" and not block.get("isComplete"):
                     prev_id = block.get("id")
                     block["isComplete"] = True
-                    logger.info(f"[SSE] tool_use: auto-completing previous tool {prev_id}")
+                    logger.debug(f"[SSE] tool_use: auto-completing previous tool {prev_id}")
                     # Broadcast completion for each previous tool
                     await broadcast_to_thread(self.thread_id, {
                         "type": "tool_result",
@@ -363,7 +363,7 @@ class MessageStreamProcessor:
             # Update tool block input when full input arrives from AssistantMessage
             tool_id = msg.metadata.get("id") if msg.metadata else None
             tool_input = msg.metadata.get("input") if msg.metadata else None
-            logger.info(f"[SSE] tool_input: updating id={tool_id} with full input")
+            logger.debug(f"[SSE] tool_input: updating id={tool_id} with full input")
             if tool_id and tool_input:
                 # Update collected block with full input
                 for block in self.collected_blocks:
@@ -379,11 +379,11 @@ class MessageStreamProcessor:
         elif msg.type == "tool_result":
             tool_use_id = msg.metadata.get("tool_use_id") if msg.metadata else None
             is_error = msg.metadata.get("is_error", False) if msg.metadata else False
-            logger.info(f"[SSE] tool_result: tool_use_id={tool_use_id}, is_error={is_error}, pending={self.pending_tool_ids}")
+            logger.debug(f"[SSE] tool_result: tool_use_id={tool_use_id}, is_error={is_error}, pending={self.pending_tool_ids}")
             # FIFO fallback: if SDK doesn't provide tool_use_id, use first pending
             if not tool_use_id and self.pending_tool_ids:
                 tool_use_id = self.pending_tool_ids.pop(0)
-                logger.info(f"[SSE] tool_result: used FIFO fallback, got id={tool_use_id}")
+                logger.debug(f"[SSE] tool_result: used FIFO fallback, got id={tool_use_id}")
             elif tool_use_id and tool_use_id in self.pending_tool_ids:
                 self.pending_tool_ids.remove(tool_use_id)
             if tool_use_id:
@@ -392,7 +392,7 @@ class MessageStreamProcessor:
                         block["isComplete"] = True
                         if is_error:
                             block["isError"] = True
-                        logger.info(f"[SSE] tool_result: marked block {tool_use_id} as complete (error={is_error})")
+                        logger.debug(f"[SSE] tool_result: marked block {tool_use_id} as complete (error={is_error})")
                         break
             # Include result content for tools that return structured data
             result_data: dict[str, Any] = {"tool_use_id": tool_use_id, "is_error": is_error}
@@ -1182,7 +1182,7 @@ def _get_directory_suggestions_sync() -> list[dict[str, Any]]:
     except Exception:
         pass
 
-    logger.info(f"Directory suggestions: found {len(suggestions)} suggestions")
+    logger.debug(f"Directory suggestions: found {len(suggestions)} suggestions")
     return suggestions
 
 
@@ -1257,7 +1257,7 @@ def _create_git_worktree_sync(base_work_dir: str, thread_id: str) -> dict[str, A
         result["success"] = True
         result["worktree_path"] = str(worktree_dir)
         result["branch_name"] = branch_name
-        logger.info(f"Created git worktree at {worktree_dir} on branch {branch_name}")
+        logger.debug(f"Created git worktree at {worktree_dir} on branch {branch_name}")
         return result
 
     except Exception as e:
@@ -1411,7 +1411,7 @@ async def get_current_time() -> dict[str, Any]:
 async def get_current_directory() -> dict[str, str]:
     """Get the server's current working directory."""
     cwd = os.getcwd()
-    logger.info(f"Get CWD: {cwd}")
+    logger.debug(f"Get CWD: {cwd}")
     return {"path": cwd}
 
 
@@ -1428,7 +1428,7 @@ async def browse_directory(path: str = "", type: str = "directory") -> list[dict
     """
     try:
         results = await asyncio.to_thread(_browse_directory_sync, path, type)
-        logger.info(f"Browse directory: path={path}, found {len(results)} items")
+        logger.debug(f"Browse directory: path={path}, found {len(results)} items")
         return results
     except PermissionError:
         logger.warning(f"Browse directory permission denied: {path}")
@@ -1457,7 +1457,7 @@ async def create_directory(request: CreateDirectoryRequest) -> dict[str, Any]:
             raise HTTPException(status_code=400, detail="Cannot create directory in system paths")
 
         path.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Created directory: {path}")
+        logger.debug(f"Created directory: {path}")
         return {"path": str(path), "created": True}
 
     except PermissionError:
@@ -1499,7 +1499,7 @@ async def get_git_info(path: str) -> dict[str, Any]:
     try:
         expanded_path = str(Path(path).expanduser().resolve())
         if not Path(expanded_path).exists():
-            logger.info(f"Git info: path does not exist: {path}")
+            logger.debug(f"Git info: path does not exist: {path}")
             return {
                 "isGitRepo": False,
                 "repoRoot": None,
@@ -1511,9 +1511,9 @@ async def get_git_info(path: str) -> dict[str, Any]:
             }
         result = await asyncio.to_thread(_get_git_info_detailed_sync, expanded_path)
         if result.get("isGitRepo"):
-            logger.info(f"Git info: {path} is repo '{result.get('repoName')}' on branch '{result.get('currentBranch')}'")
+            logger.debug(f"Git info: {path} is repo '{result.get('repoName')}' on branch '{result.get('currentBranch')}'")
         else:
-            logger.info(f"Git info: {path} is not a git repository")
+            logger.debug(f"Git info: {path} is not a git repository")
         return result
     except Exception as e:
         logger.warning(f"Git info error for {path}: {e}")

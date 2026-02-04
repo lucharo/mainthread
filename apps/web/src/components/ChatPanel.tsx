@@ -517,7 +517,7 @@ export function ChatPanel() {
               id: b.id,
               isComplete: b.isComplete ?? false,
             }));
-            return <ToolHistoryBlock key={groupKey} tools={tools} />;
+            return <ToolHistoryBlock key={groupKey} tools={tools} onNavigateToThread={setActiveThread} />;
           }
         })}
 

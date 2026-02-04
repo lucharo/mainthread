@@ -538,9 +538,9 @@ async def run_agent(
 
     if extended_thinking and "MAX_THINKING_TOKENS" not in os.environ:
         os.environ["MAX_THINKING_TOKENS"] = "10000"
-        logger.info("[AGENT] Set MAX_THINKING_TOKENS=10000 for extended thinking")
+        logger.debug("[AGENT] Set MAX_THINKING_TOKENS=10000 for extended thinking")
 
-    logger.info(f"[AGENT] Starting agent for thread {thread_id}, model: {model}")
+    logger.debug(f"[AGENT] Starting agent for thread {thread_id}, model: {model}")
 
     options = ClaudeAgentOptions(
         system_prompt=system_prompt,
@@ -582,12 +582,12 @@ async def run_agent(
                 await client.query(user_message)
 
             async for message in client.receive_response():
-                logger.info(f"[AGENT] Received message type: {type(message).__name__}")
+                logger.debug(f"[AGENT] Received message type: {type(message).__name__}")
 
                 if isinstance(message, AssistantMessage):
-                    logger.info(f"[AGENT] AssistantMessage content has {len(message.content)} blocks")
+                    logger.debug(f"[AGENT] AssistantMessage content has {len(message.content)} blocks")
                     for block in message.content:
-                        logger.info(f"[AGENT] Block type: {type(block).__name__}")
+                        logger.debug(f"[AGENT] Block type: {type(block).__name__}")
                         if isinstance(block, TextBlock):
                             if not received_streaming_text:
                                 collected_content.append(block.text)
@@ -723,7 +723,7 @@ async def run_agent(
                         elif block_type == "tool_use":
                             tool_name = content_block.get("name", "")
                             tool_id = content_block.get("id", "")
-                            logger.info(f"[AGENT] StreamEvent tool_use start: {tool_name} ({tool_id})")
+                            logger.debug(f"[AGENT] StreamEvent tool_use start: {tool_name} ({tool_id})")
                             # Yield tool_use immediately so UI can show spinner
                             collected_tool_calls.append({
                                 "name": tool_name,
