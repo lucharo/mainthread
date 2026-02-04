@@ -3,6 +3,7 @@ import { ChatPanel } from './components/ChatPanel';
 import { ThreadSidebar } from './components/ThreadSidebar';
 import { SettingsPanel } from './components/SettingsPanel';
 import { CommandPalette } from './components/CommandPalette';
+import { WelcomeModal } from './components/WelcomeModal';
 import { useThreadStore } from './store/threadStore';
 import { useSettingsStore } from './store/settingsStore';
 
@@ -294,6 +295,9 @@ export default function App() {
 
       {/* Command palette (Cmd+K) */}
       <CommandPalette />
+
+      {/* Welcome modal (first-time users) */}
+      <WelcomeModal />
     </div>
   );
 }
