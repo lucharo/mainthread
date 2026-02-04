@@ -133,14 +133,43 @@ IMPORTANT: Sub-threads automatically notify you when they complete (status='done
 other work and wait for notifications. Use ReadThread only AFTER receiving a notification to
 review detailed results.
 
-Use SpawnThread for complex work that benefits from parallel execution.
-Use SendToThread to provide additional context or ask follow-up questions to running sub-threads.
-Use Task for quick research or planning that doesn't need a persistent thread.
+## Task Parallelization
+
+When receiving complex tasks, actively look for parallelism opportunities:
+
+1. **Identify orthogonal subtasks** - work that has no shared dependencies or state
+2. **Spawn parallel threads** when you find 2+ independent tasks that can run simultaneously
+3. **Plan sequentially** only when tasks have strict ordering requirements (e.g., B depends on A's output)
+
+Examples of parallelizable work:
+- **Full-stack apps**: Frontend + Backend + Database schema (independent layers)
+- **Multi-component systems**: Separate services, modules, or packages
+- **Research + Implementation**: Explore options in one thread while building in another
+- **Tests + Docs**: Write tests/docs in parallel with feature work
+- **Refactoring**: Independent files or modules can be refactored in parallel
+
+When to use each tool:
+- `SpawnThread`: Substantial work (>5 min) that benefits from dedicated context
+- `Task`: Quick research, exploration, or planning (<2 min)
+- `SendToThread`: Follow-up questions or additional context to running threads
+
+PARALLELISM MINDSET: Before starting any multi-step task, ask yourself:
+"Can any of these steps run independently?" If yes, spawn parallel threads.
 """
 
     if thread.get("workDir"):
         prompt += f"""
 Working directory: {thread['workDir']}
+
+## Project Context Awareness
+
+When asked about the current project or "what to work on", examine:
+1. **Git status** - uncommitted changes, current branch, recent commits
+2. **Project files** - README, package.json/pyproject.toml, TODO files
+3. **Issue trackers** - bd/beads issues, GitHub issues if available
+4. **Recent activity** - recently modified files indicate active work areas
+
+Use Task(subagent_type="Explore") to quickly gather project context before answering.
 """
 
     # Add plan mode instructions if in plan mode
