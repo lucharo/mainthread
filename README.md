@@ -1,14 +1,29 @@
-# MainThread
+# 🧵 Main Thread
 
-Multi-threaded Claude conversations with a web UI. Create parallel sub-threads for complex tasks with automatic status notifications.
+[![PyPI version](https://img.shields.io/pypi/v/mainthread.svg)](https://pypi.org/project/mainthread/)
+[![Python versions](https://img.shields.io/pypi/pyversions/mainthread.svg)](https://pypi.org/project/mainthread/)
+[![License](https://img.shields.io/pypi/l/mainthread.svg)](https://github.com/lucharo/mainthread/blob/main/LICENSE)
+
+Multi-threaded Claude conversations with a web UI. Spawn sub-threads for parallel work that you can jump into at any time—these aren't autonomous sub-agents running in the background, they're full conversations you can continue from the CLI or UI whenever you need to.
+
+## Use Cases
+
+- **Single orchestrator, multiple workstreams**: Interact with one main agent that spawns and manages sub-threads for parallel tasks. Jump into any conversation whenever you need to provide guidance or take over.
+
+- **Naturally parallelizable work**: Work on different tickets, features, or areas of the codebase simultaneously. Each sub-thread maintains its own context and working directory.
+
+- **Git worktree integration**: With worktrees, each sub-thread can operate in its own isolated branch—making parallel agent work even more ergonomic.
 
 ## Quick Start
 
 ```bash
-# Install with pip/uv
-pip install .
+# Try it instantly with uvx (no install needed)
+uvx mainthread
+
+# Or install with pip/uv
+pip install mainthread
 # or
-uv pip install .
+uv pip install mainthread
 
 # Run the server (opens web UI at http://localhost:2026)
 mainthread
@@ -19,74 +34,13 @@ mainthread serve --port 2026 --work-dir /path/to/project
 
 ## Features
 
-- **Multi-threaded Conversations**: Spawn sub-threads for parallel work
-- **Automatic Notifications**: Sub-threads notify parent when done or blocked
+- **Spawned Sub-threads**: Create parallel threads for independent work—not background sub-agents, but full conversations you can jump into and continue anytime
+- **Continue from CLI**: Every thread can be resumed from the command line with full conversation history
+- **Automatic Notifications**: Sub-threads signal completion or need attention; parent thread stays informed
 - **Claude Code Integration**: Uses Claude Code SDK for tool use and extended thinking
 - **Real-time Streaming**: SSE-based streaming with reconnection recovery
 - **Git-Aware**: Detects branch, repo, and worktree status
 - **Permission Modes**: Plan, Accept, Normal, or Bypass permissions
-
-## Architecture
-
-```
-mainthread/
-├── src/mainthread/           # Python backend
-│   ├── cli.py               # Typer CLI (mainthread command)
-│   ├── server.py            # FastAPI server with SSE
-│   ├── db.py                # SQLite persistence
-│   ├── agents/              # Claude SDK integration
-│   │   ├── core.py          # Agent execution loop
-│   │   ├── registry.py      # Service registry for tools
-│   │   └── tools/           # Tool implementations
-│   │       ├── spawn_thread.py
-│   │       ├── list_threads.py
-│   │       ├── read_thread.py
-│   │       ├── archive_thread.py
-│   │       ├── send_to_thread.py
-│   │       └── signal_status.py
-│   └── static/              # Built React frontend
-├── apps/web/                # React frontend source
-│   └── src/
-│       ├── components/      # UI components
-│       │   ├── ChatPanel.tsx
-│       │   ├── ThreadHeader.tsx
-│       │   ├── MessageInput.tsx
-│       │   └── MessageBubble.tsx
-│       └── store/           # Zustand state
-└── pyproject.toml           # Package configuration
-```
-
-## Development
-
-### Prerequisites
-- Python 3.11+
-- Node.js 20+
-- pnpm
-- Claude Code CLI (`npm install -g @anthropic-ai/claude-code`)
-
-### Setup
-
-```bash
-# Install Python dependencies
-uv sync
-
-# Install frontend dependencies
-pnpm install
-
-# Build frontend (outputs to src/mainthread/static/)
-pnpm run build
-
-# Run in development mode (with auto-reload)
-uv run mainthread serve --reload
-```
-
-### Frontend Development
-
-```bash
-# Run frontend dev server (hot reload)
-cd apps/web
-pnpm run dev  # Runs on port 3000, proxies API to 2026
-```
 
 ## Thread Tools
 
@@ -108,34 +62,55 @@ Sub-threads have:
 | `SignalStatus` | Signal completion (`done`) or need for help (`blocked`) |
 | `Task` | Same as main thread |
 
-## API Reference
+## Development
 
-### Threads
+### Prerequisites
 
-- `GET /api/threads` - List threads (query: `include_archived=true`)
-- `GET /api/threads/:id` - Get thread details
-- `POST /api/threads` - Create thread
-- `PATCH /api/threads/:id/status` - Update status
-- `PATCH /api/threads/:id/config` - Update model/permissions
-- `DELETE /api/threads/:id/messages` - Clear messages
-- `POST /api/threads/:id/archive` - Archive thread
-- `POST /api/threads/:id/unarchive` - Unarchive thread
+- Python 3.11+
+- Node.js 20+ / Bun
+- Claude Code CLI (`npm install -g @anthropic-ai/claude-code`)
 
-### Messages
+### Setup
 
-- `GET /api/threads/:id/messages` - Get paginated messages
-- `POST /api/threads/:id/messages` - Send message (triggers agent)
-- `POST /api/threads/:id/answer` - Answer agent questions
+```bash
+# Install all dependencies
+just install
 
-### Real-time
+# Run both backend and frontend in dev mode
+just dev
 
-- `GET /api/threads/:id/stream` - SSE event stream
+# Or run them separately:
+just serve          # Backend with auto-reload
+just dev-frontend   # Frontend with hot reload
+```
 
-## Configuration
+Many quick scripts are available in the `justfile`. Run `just` to see all available commands.
 
-Environment variables:
-- `ANTHROPIC_API_KEY` - Required for Claude API
-- `CORS_ORIGINS` - Comma-separated allowed origins (default: localhost)
+### Project Structure
+
+```
+mainthread/
+├── src/mainthread/           # Python backend (FastAPI)
+│   ├── cli.py               # Typer CLI
+│   ├── server.py            # FastAPI server with SSE
+│   ├── db.py                # SQLite persistence
+│   └── agents/              # Claude SDK integration + tools
+├── apps/web/                # React frontend (TypeScript, Vite, Tailwind)
+│   └── src/
+│       ├── components/      # UI components
+│       └── store/           # Zustand state
+└── justfile                 # Development commands
+```
+
+### Testing & Quality
+
+```bash
+just test        # Run tests
+just lint        # Check linting
+just lint-fix    # Fix lint issues
+just typecheck   # Type check
+just check       # Run all checks
+```
 
 ## License
 
