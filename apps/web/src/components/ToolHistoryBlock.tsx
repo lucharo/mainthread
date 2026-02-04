@@ -199,11 +199,11 @@ function ToolHistoryItem({
             />
           </svg>
         )}
-        <span className="font-mono text-xs text-gray-600 dark:text-gray-400 flex-shrink-0 w-16 truncate">
+        <span className="font-mono text-xs text-gray-600 dark:text-gray-400 flex-shrink-0">
           {formatToolName(tool.name)}
         </span>
         {preview && (
-          <span className="text-xs text-gray-500 dark:text-gray-400 truncate flex-1 text-left">
+          <span className="text-xs text-gray-500 dark:text-gray-400 truncate flex-1 text-left font-mono">
             {preview}
           </span>
         )}
