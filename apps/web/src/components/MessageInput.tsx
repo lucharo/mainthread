@@ -540,7 +540,7 @@ export function MessageInput({
               if (!showFilePicker) handleInputKeyDown(e);
             }}
             onPaste={handlePaste}
-            placeholder="Type a message... (@ for files, Shift+Enter to cycle mode)"
+            placeholder="Type a message... (@ for files)"
             disabled={disabled}
             aria-label="Message input"
             className="w-full px-4 py-2 rounded-lg border border-border bg-background
