@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface PlanApprovalBlockProps {
   planFilePath: string;
@@ -18,6 +20,7 @@ export function PlanApprovalBlock({
   onCompact,
 }: PlanApprovalBlockProps) {
   const [isExpanded, setIsExpanded] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   const handleProceed = async (mode: 'default' | 'acceptEdits' | 'bypassPermissions') => {
@@ -68,8 +71,19 @@ export function PlanApprovalBlock({
   }, [isLoading, onModify, onCompact]);
 
   return (
-    <div className="flex justify-start my-4">
-      <div className="max-w-[85%] w-full rounded-xl overflow-hidden shadow-lg border-2 border-blue-500/40 dark:border-blue-400/30">
+    <div className={`flex justify-start my-4 ${isFullscreen ? 'fixed inset-4 z-50' : ''}`}>
+      {/* Backdrop for fullscreen */}
+      {isFullscreen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40"
+          onClick={() => setIsFullscreen(false)}
+        />
+      )}
+      <div className={`rounded-xl overflow-hidden shadow-lg border-2 border-blue-500/40 dark:border-blue-400/30 ${
+        isFullscreen
+          ? 'fixed inset-8 z-50 flex flex-col bg-background'
+          : 'max-w-[85%] w-full'
+      }`}>
         {/* Header - distinctive blue gradient */}
         <div className="flex items-center justify-between px-5 py-4 bg-gradient-to-r from-blue-600 to-blue-500 dark:from-blue-700 dark:to-blue-600">
           <div className="flex items-center gap-3">
@@ -91,28 +105,52 @@ export function PlanApprovalBlock({
               </p>
             </div>
           </div>
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
-            aria-label={isExpanded ? 'Collapse plan' : 'Expand plan'}
-          >
-            <svg
-              className={`w-5 h-5 text-white transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+          <div className="flex items-center gap-2">
+            {/* Fullscreen toggle */}
+            <button
+              onClick={() => setIsFullscreen(!isFullscreen)}
+              className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
+              aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+              title={isFullscreen ? 'Exit fullscreen' : 'Expand for easier reading'}
             >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
+              {isFullscreen ? (
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              ) : (
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                </svg>
+              )}
+            </button>
+            {/* Collapse toggle */}
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
+              aria-label={isExpanded ? 'Collapse plan' : 'Expand plan'}
+            >
+              <svg
+                className={`w-5 h-5 text-white transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+          </div>
         </div>
 
-        {/* Plan content (collapsible) */}
+        {/* Plan content (collapsible) - rendered as markdown */}
         {isExpanded && (
-          <div className="px-5 py-4 bg-slate-50 dark:bg-slate-900/50 max-h-96 overflow-y-auto">
-            <pre className="text-sm text-foreground whitespace-pre-wrap font-mono leading-relaxed">
-              {planContent || 'Plan content not available'}
-            </pre>
+          <div className={`px-5 py-4 bg-slate-50 dark:bg-slate-900/50 overflow-y-auto ${
+            isFullscreen ? 'max-h-[70vh]' : 'max-h-96'
+          }`}>
+            <div className="prose prose-sm max-w-none text-foreground prose-p:my-2 prose-p:text-foreground prose-headings:text-foreground prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-sm prose-strong:text-foreground prose-code:text-foreground prose-code:bg-slate-200 dark:prose-code:bg-slate-700 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-table:text-sm prose-th:bg-slate-100 dark:prose-th:bg-slate-800 prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 prose-td:border-slate-200 dark:prose-td:border-slate-700">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {planContent || 'Plan content not available'}
+              </ReactMarkdown>
+            </div>
           </div>
         )}
 
