@@ -29,7 +29,7 @@ uv add mainthread
 mainthread
 
 # Or with custom options
-mainthread serve --port 2026 --work-dir /path/to/project
+mainthread serve --work-dir /path/to/project
 ```
 
 ## Features
