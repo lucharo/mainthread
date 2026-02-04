@@ -52,10 +52,28 @@ def create_spawn_thread_tool(
                 "is_error": True,
             }
 
-        # Use provided values or inherit from parent
-        model = args.get("model") or parent_model
-        permission_mode = args.get("permission_mode") or parent_permission_mode
-        extended_thinking = args.get("extended_thinking") if args.get("extended_thinking") is not None else parent_extended_thinking
+        # Valid options for validation
+        VALID_MODELS = {"claude-sonnet-4-5", "claude-opus-4-5", "claude-haiku-4-5"}
+        VALID_PERMISSION_MODES = {"default", "acceptEdits", "bypassPermissions", "plan"}
+
+        # Use provided values or inherit from parent (explicit key check for booleans)
+        model = args["model"] if "model" in args and args["model"] else parent_model
+        permission_mode = args["permission_mode"] if "permission_mode" in args and args["permission_mode"] else parent_permission_mode
+        extended_thinking = args["extended_thinking"] if "extended_thinking" in args else parent_extended_thinking
+
+        # Validate model
+        if model not in VALID_MODELS:
+            return {
+                "content": [{"type": "text", "text": f"Invalid model '{model}'. Must be one of: {', '.join(VALID_MODELS)}"}],
+                "is_error": True,
+            }
+
+        # Validate permission mode
+        if permission_mode not in VALID_PERMISSION_MODES:
+            return {
+                "content": [{"type": "text", "text": f"Invalid permission_mode '{permission_mode}'. Must be one of: {', '.join(VALID_PERMISSION_MODES)}"}],
+                "is_error": True,
+            }
 
         try:
             new_thread = await registry.create_thread(

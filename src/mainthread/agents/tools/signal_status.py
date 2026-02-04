@@ -36,18 +36,25 @@ def create_signal_status_tool(parent_thread_id: str, child_thread_id: str):
 
         # Actually notify the parent thread via registry
         registry = get_registry()
-        if registry.broadcast_status_signal:
-            try:
-                await registry.broadcast_status_signal(
-                    parent_thread_id, child_thread_id, status, reason
-                )
-            except Exception as e:
-                return {
-                    "content": [
-                        {"type": "text", "text": f"Failed to signal parent: {e}"}
-                    ],
-                    "is_error": True,
-                }
+        if not registry.broadcast_status_signal:
+            return {
+                "content": [
+                    {"type": "text", "text": "Warning: No broadcast mechanism available, parent thread was NOT notified. Status signal may not work correctly."}
+                ],
+                "is_error": True,
+            }
+
+        try:
+            await registry.broadcast_status_signal(
+                parent_thread_id, child_thread_id, status, reason
+            )
+        except Exception as e:
+            return {
+                "content": [
+                    {"type": "text", "text": f"Failed to signal parent: {e}"}
+                ],
+                "is_error": True,
+            }
 
         status_msg = "completed" if status == "done" else "blocked and needs attention"
         return {
