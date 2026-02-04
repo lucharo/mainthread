@@ -83,6 +83,7 @@ interface ThreadState {
   appendTextToLastBlock: (threadId: string, content: string) => void;
   appendThinkingToLastBlock: (threadId: string, content: string) => void;
   markBlockComplete: (threadId: string, toolUseId: string, isError?: boolean, errorMessage?: string) => void;
+  updateBlockInput: (threadId: string, toolUseId: string, input: Record<string, unknown>) => void;
   collapseToolBlock: (threadId: string, toolUseId: string) => void;
   clearStreamingBlocks: (threadId: string) => void;
   setExpandedStreamingBlockId: (threadId: string, blockId: string | null) => void;
@@ -688,6 +689,15 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       }
     });
 
+    eventSource.addEventListener('tool_input', (event) => {
+      updateLastEventId(event);
+      const data = safeJsonParse<{ id?: string; input?: Record<string, unknown> }>(event.data, {});
+      console.log('[SSE] tool_input received:', data);
+      if (data.id && data.input) {
+        get().updateBlockInput(threadId, data.id, data.input);
+      }
+    });
+
     eventSource.addEventListener('tool_result', (event) => {
       updateLastEventId(event);
       const data = safeJsonParse<{ tool_use_id?: string; thread_id?: string; content?: unknown; is_error?: boolean }>(event.data, {});
@@ -1190,6 +1200,23 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
           [threadId]: blocks.map((b) =>
             b.type === 'tool_use' && b.id === toolUseId
               ? { ...b, isComplete: true, isFinalized: true, isError, errorMessage }
+              : b
+          ),
+        },
+      };
+    });
+  },
+
+  updateBlockInput: (threadId, toolUseId, input) => {
+    console.log(`[SSE] updateBlockInput called: threadId=${threadId}, toolUseId=${toolUseId}`);
+    set((state) => {
+      const blocks = state.streamingBlocks[threadId] || [];
+      return {
+        streamingBlocks: {
+          ...state.streamingBlocks,
+          [threadId]: blocks.map((b) =>
+            b.type === 'tool_use' && b.id === toolUseId
+              ? { ...b, input }
               : b
           ),
         },

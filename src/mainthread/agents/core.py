@@ -572,11 +572,26 @@ async def run_agent(
                             )
 
                         elif isinstance(block, ToolUseBlock):
-                            # Skip if already emitted via StreamEvent
+                            # Check if already emitted via StreamEvent
                             already_emitted = any(
                                 t.get("id") == block.id for t in collected_tool_calls
                             )
-                            if not already_emitted:
+                            if already_emitted:
+                                # Update the collected tool with full input
+                                for t in collected_tool_calls:
+                                    if t.get("id") == block.id:
+                                        t["input"] = block.input
+                                        break
+                                # Emit tool_input update with full input (for UI to update)
+                                yield AgentMessage(
+                                    type="tool_input",
+                                    content="",
+                                    metadata={
+                                        "id": block.id,
+                                        "input": block.input,
+                                    },
+                                )
+                            else:
                                 collected_tool_calls.append(
                                     {
                                         "name": block.name,

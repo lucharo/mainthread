@@ -358,6 +358,23 @@ class MessageStreamProcessor:
             # approval before allowing the tool to proceed. We don't broadcast here to avoid
             # duplicate events - the permission handler is the authoritative source.
 
+        elif msg.type == "tool_input":
+            # Update tool block input when full input arrives from AssistantMessage
+            tool_id = msg.metadata.get("id") if msg.metadata else None
+            tool_input = msg.metadata.get("input") if msg.metadata else None
+            logger.info(f"[SSE] tool_input: updating id={tool_id} with full input")
+            if tool_id and tool_input:
+                # Update collected block with full input
+                for block in self.collected_blocks:
+                    if block.get("type") == "tool_use" and block.get("id") == tool_id:
+                        block["input"] = tool_input
+                        break
+                # Broadcast input update to frontend
+                await broadcast_to_thread(self.thread_id, {
+                    "type": "tool_input",
+                    "data": {"id": tool_id, "input": tool_input},
+                })
+
         elif msg.type == "tool_result":
             tool_use_id = msg.metadata.get("tool_use_id") if msg.metadata else None
             is_error = msg.metadata.get("is_error", False) if msg.metadata else False
