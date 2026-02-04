@@ -28,7 +28,10 @@ uv add mainthread
 # Run the server (opens web UI at http://localhost:2026)
 mainthread
 
-# Or with custom options
+# Run in current directory
+mainthread serve
+
+# Or specify a different directory
 mainthread serve --work-dir /path/to/project
 ```
 
