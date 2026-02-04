@@ -487,22 +487,6 @@ function ThreadItem({
           </button>
         )}
 
-        {/* Resume button - shown on hover for idle threads (not pending) */}
-        {thread.status !== 'pending' && thread.messages.length > 0 && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onResume(thread.id);
-            }}
-            className="opacity-0 group-hover:opacity-100 p-1 text-green-500 hover:text-green-600 transition-opacity"
-            title="Resume thread"
-          >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M8 5v14l11-7z" />
-            </svg>
-          </button>
-        )}
-
         {/* Archive button - shown on hover */}
         <button
           onClick={(e) => {
@@ -761,22 +745,6 @@ function SubThreadItem({ sub, isActive, onSelect, onStop, onResume, onArchive, o
         >
           <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
             <rect x="6" y="6" width="12" height="12" rx="1" />
-          </svg>
-        </button>
-      )}
-
-      {/* Resume button */}
-      {sub.status !== 'pending' && sub.messages.length > 0 && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onResume(sub.id);
-          }}
-          className="flex-shrink-0 opacity-0 group-hover:opacity-100 p-1 text-green-500 hover:text-green-600 transition-opacity"
-          title="Resume sub-thread"
-        >
-          <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M8 5v14l11-7z" />
           </svg>
         </button>
       )}

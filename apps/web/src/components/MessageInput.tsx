@@ -436,21 +436,6 @@ export function MessageInput({
             label="Thinking"
           />
 
-          {/* Auto-react toggle - only for main threads (not sub-threads) */}
-          {!thread.parentId && (
-            <label
-              className="text-xs flex items-center gap-1.5 px-2 py-1 rounded border border-border bg-background cursor-pointer hover:bg-muted"
-              title="When enabled, the agent automatically responds to sub-thread completion notifications"
-            >
-              <input
-                type="checkbox"
-                checked={thread.autoReact ?? true}
-                onChange={(e) => onAutoReactToggle(e.target.checked)}
-                className="w-3 h-3 rounded border-border"
-              />
-              <span className="text-muted-foreground">Auto-react</span>
-            </label>
-          )}
         </div>
       </div>
 

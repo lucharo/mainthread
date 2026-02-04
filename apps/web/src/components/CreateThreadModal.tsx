@@ -554,7 +554,8 @@ export function CreateThreadModal({
                 onFocus={() => {
                   setShowDirSuggestions(true);
                   // Fetch suggestions if empty (e.g., on initial focus with prefilled path)
-                  if (dirSuggestions.length === 0 && workDir) {
+                  // BUT don't re-validate if we already know the path exists (e.g., after creating it)
+                  if (dirSuggestions.length === 0 && workDir && pathExists !== true) {
                     fetchDirSuggestions(workDir);
                   }
                 }}
