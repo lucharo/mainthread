@@ -55,6 +55,8 @@ function formatToolSummary(
 }
 
 // Check if input has meaningful content to display (beyond what's shown in summary)
+// NOTE: Tool names are hardcoded here. Update this list if new file-operation tools are added
+// or if existing tools are renamed. Consider pattern-based detection if the tool set grows.
 function hasExpandableContent(name: string | undefined, input: Record<string, unknown> | undefined): boolean {
   if (!input) return false;
   const keys = Object.keys(input);

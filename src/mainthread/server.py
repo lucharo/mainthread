@@ -526,10 +526,18 @@ async def create_thread_for_agent(
     if parent_id:
         # Create a clean copy without internal metadata
         thread_data = {k: v for k, v in thread.items() if not k.startswith("_")}
-        asyncio.create_task(broadcast_to_thread(parent_id, {
-            "type": "thread_created",
-            "data": {"thread": thread_data},
-        }))
+
+        async def _broadcast_thread_created():
+            try:
+                await broadcast_to_thread(parent_id, {
+                    "type": "thread_created",
+                    "data": {"thread": thread_data},
+                })
+            except Exception as e:
+                # Broadcast failure is non-critical - frontend will get data on next fetch
+                logger.debug(f"Failed to broadcast thread_created to {parent_id}: {e}")
+
+        asyncio.create_task(_broadcast_thread_created())
 
     return thread
 

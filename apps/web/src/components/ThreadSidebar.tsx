@@ -31,6 +31,31 @@ function StatusDot({ status }: { status: ThreadStatus }) {
   );
 }
 
+// Permission mode badge - only shown for notable modes (plan, bypass)
+function PermissionModeBadge({ mode }: { mode?: string }) {
+  if (mode === 'plan') {
+    return (
+      <span
+        className="text-[10px] px-1 py-0.5 rounded bg-blue-500/20 text-blue-600 dark:text-blue-400"
+        title="Plan mode - requires approval before execution"
+      >
+        Plan
+      </span>
+    );
+  }
+  if (mode === 'bypassPermissions') {
+    return (
+      <span
+        className="text-[10px] px-1 py-0.5 rounded bg-red-500/20 text-red-600"
+        title="Bypass mode - no permission prompts"
+      >
+        Bypass
+      </span>
+    );
+  }
+  return null;
+}
+
 // Muted badge colors - let the status dot be the dominant color signal
 const MODEL_BADGES: Record<ModelType, { short: string; full: string; color: string }> = {
   'claude-sonnet-4-5': { short: 'Sonnet', full: 'Sonnet 4.5', color: 'bg-muted text-muted-foreground' },
@@ -441,23 +466,8 @@ function ThreadItem({
               >
                 Thinking
               </span>
-              {/* Permission mode badge - only show for notable modes */}
-              {thread.permissionMode === 'plan' && (
-                <span
-                  className="text-[10px] px-1 py-0.5 rounded bg-blue-500/20 text-blue-600 dark:text-blue-400"
-                  title="Plan mode - requires approval before execution"
-                >
-                  Plan
-                </span>
-              )}
-              {thread.permissionMode === 'bypassPermissions' && (
-                <span
-                  className="text-[10px] px-1 py-0.5 rounded bg-red-500/20 text-red-600"
-                  title="Bypass mode - no permission prompts"
-                >
-                  Bypass
-                </span>
-              )}
+              {/* Permission mode badge */}
+              <PermissionModeBadge mode={thread.permissionMode} />
               {/* Sub-thread count */}
               {hasSubThreads && (
                 <span className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground">
@@ -719,23 +729,8 @@ function SubThreadItem({ sub, isActive, onSelect, onStop, onArchive, onRename }:
             >
               Thinking
             </span>
-            {/* Permission mode badge - only show for notable modes */}
-            {sub.permissionMode === 'plan' && (
-              <span
-                className="text-[10px] px-1 py-0.5 rounded bg-blue-500/20 text-blue-600 dark:text-blue-400"
-                title="Plan mode - requires approval before execution"
-              >
-                Plan
-              </span>
-            )}
-            {sub.permissionMode === 'bypassPermissions' && (
-              <span
-                className="text-[10px] px-1 py-0.5 rounded bg-red-500/20 text-red-600"
-                title="Bypass mode - no permission prompts"
-              >
-                Bypass
-              </span>
-            )}
+            {/* Permission mode badge */}
+            <PermissionModeBadge mode={sub.permissionMode} />
             {sub.gitBranch && (
               <span className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground truncate max-w-[50px]" title={sub.gitBranch}>
                 {sub.gitBranch}
