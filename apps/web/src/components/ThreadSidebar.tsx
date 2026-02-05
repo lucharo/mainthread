@@ -20,10 +20,11 @@ const STATUS_COLORS: Record<ThreadStatus, { bg: string; label: string }> = {
 
 function StatusDot({ status }: { status: ThreadStatus }) {
   const config = STATUS_COLORS[status];
-  const isPending = status === 'pending';
+  // Blink when thread is actively processing (pending or active)
+  const isProcessing = status === 'pending' || status === 'active';
   return (
     <span
-      className={`w-2 h-2 rounded-full ${config.bg} flex-shrink-0 ${isPending ? 'animate-neon-blink' : ''}`}
+      className={`w-2 h-2 rounded-full ${config.bg} flex-shrink-0 ${isProcessing ? 'animate-neon-blink' : ''}`}
       title={config.label}
       aria-label={`Thread status: ${config.label}`}
       role="status"
