@@ -26,10 +26,17 @@ _active_tasks: dict[str, ActiveTask] = {}
 def register_task(thread_id: str, task: asyncio.Task) -> None:
     """Register a task for tracking.
 
+    If an existing task is registered for this thread_id, cancel it first
+    to avoid orphaned tasks.
+
     Args:
         thread_id: The thread ID this task belongs to
         task: The asyncio task to track
     """
+    existing = _active_tasks.get(thread_id)
+    if existing and not existing.task.done():
+        existing.task.cancel()
+        logger.info(f"Cancelled existing task for thread {thread_id} before registering new one")
     _active_tasks[thread_id] = ActiveTask(task=task, thread_id=thread_id)
     logger.debug(f"Registered task for thread {thread_id}")
 

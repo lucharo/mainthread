@@ -78,7 +78,7 @@ thread_subscribers: dict[str, list[asyncio.Queue[dict[str, Any]]]] = defaultdict
 class SSEEventStore:
     """In-memory store for recent SSE events to support reconnection recovery."""
 
-    def __init__(self, max_events_per_thread: int = 100):
+    def __init__(self, max_events_per_thread: int = 500):
         self.max_events = max_events_per_thread
         self.events: dict[str, list[dict[str, Any]]] = defaultdict(list)
         self.sequence: dict[str, int] = defaultdict(int)
@@ -111,12 +111,52 @@ class SSEEventStore:
 
 sse_event_store = SSEEventStore()
 
-# Track parent threads currently processing notifications to prevent duplicates
-_processing_notifications: set[str] = set()
+# Per-parent notification queues to process notifications sequentially without dropping
+_notification_queues: dict[str, asyncio.Queue[str]] = {}
+_notification_workers: dict[str, asyncio.Task] = {}
 
 # Concurrency control: limit concurrent Claude agent processes
 MAX_CONCURRENT_AGENTS = int(os.environ.get("MAINTHREAD_MAX_AGENTS", "10"))
 _agent_semaphore = asyncio.Semaphore(MAX_CONCURRENT_AGENTS)
+
+# Watchdog for stuck threads
+_watchdog_task: asyncio.Task | None = None
+WATCHDOG_INTERVAL_SECONDS = 60
+WATCHDOG_STUCK_THRESHOLD_SECONDS = 120
+
+
+async def _stuck_thread_watchdog() -> None:
+    """Periodically check for threads stuck in pending/active status without SSE activity."""
+    while True:
+        try:
+            await asyncio.sleep(WATCHDOG_INTERVAL_SECONDS)
+            now = datetime.now(timezone.utc)
+            all_threads = get_all_threads(include_archived=False)
+            for thread in all_threads:
+                status = thread.get("status")
+                if status not in ("pending", "active"):
+                    continue
+                updated_at = thread.get("updatedAt") or thread.get("createdAt", "")
+                if not updated_at:
+                    continue
+                try:
+                    updated = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+                    if updated.tzinfo is None:
+                        updated = updated.replace(tzinfo=timezone.utc)
+                    elapsed = (now - updated).total_seconds()
+                    if elapsed > WATCHDOG_STUCK_THRESHOLD_SECONDS:
+                        has_subscribers = bool(thread_subscribers.get(thread["id"]))
+                        logger.warning(
+                            f"[WATCHDOG] Thread {thread['id']} ({thread['title']!r}) "
+                            f"stuck in '{status}' for {int(elapsed)}s, "
+                            f"subscribers={has_subscribers}"
+                        )
+                except (ValueError, TypeError):
+                    pass
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            logger.debug(f"[WATCHDOG] Error during check: {e}")
 
 
 @asynccontextmanager
@@ -128,7 +168,8 @@ async def lifespan(app: FastAPI):
     """
     # Startup: reset state for new event loop
     thread_subscribers.clear()
-    _processing_notifications.clear()
+    _notification_queues.clear()
+    _notification_workers.clear()
     sse_event_store.clear()
     clear_all_tasks()
     reset_agent_state()
@@ -143,13 +184,26 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Failed to reset stale pending threads: {e}")
 
+    # Start watchdog for stuck threads
+    global _watchdog_task
+    _watchdog_task = asyncio.create_task(_stuck_thread_watchdog())
+
     logger.info("MainThread API started - asyncio state reset")
     yield
     # Shutdown: cleanup
     logger.info("MainThread API shutting down")
 
+    # Cancel watchdog
+    if _watchdog_task:
+        _watchdog_task.cancel()
+        _watchdog_task = None
+
     thread_subscribers.clear()
-    _processing_notifications.clear()
+    # Cancel notification workers
+    for worker in _notification_workers.values():
+        worker.cancel()
+    _notification_queues.clear()
+    _notification_workers.clear()
     sse_event_store.clear()
     clear_all_tasks()
     logger.info("MainThread API shutdown complete")
@@ -540,9 +594,14 @@ async def create_thread_for_agent(
             # Fallback to original work_dir, log warning
             logger.warning(f"Worktree creation failed for sub-thread, using original work_dir: {worktree_info['error']}")
 
-    # Re-detect git info for the final work directory (may be worktree)
+    # If worktree was created, construct git info from what we already know
+    # instead of calling detect_git_info again (avoids ~7 extra subprocess calls)
     if worktree_info["success"]:
-        git_info = await detect_git_info(final_work_dir)
+        git_info = {
+            "git_branch": worktree_branch,
+            "git_repo": git_info["git_repo"],  # repo name unchanged
+            "is_worktree": True,
+        }
 
     thread = create_thread(
         title=title,
@@ -564,7 +623,9 @@ async def create_thread_for_agent(
     # This prevents the race condition where frontend receives thread with 0 messages
     if initial_message:
         add_message(thread["id"], "user", initial_message)
-        # Refresh thread to include the message in the broadcast
+        # Set status to pending since the thread will be run immediately
+        update_thread_status(thread["id"], "pending")
+        # Refresh thread to include the message and updated status in the broadcast
         thread = get_thread(thread["id"]) or thread
         thread["_worktree_info"] = worktree_info
 
@@ -720,74 +781,83 @@ async def notify_parent_of_subthread_completion(
 
 
 async def run_parent_thread_notification(thread_id: str, notification_content: str) -> None:
-    """Run agent on parent thread to process a sub-thread notification.
+    """Enqueue a notification for sequential processing on a parent thread.
 
-    This is called when a sub-thread completes and the parent thread agent
-    should be notified to read the results. Unlike run_thread_for_agent,
-    this doesn't add a new message (it's already added).
-
-    Uses a simple lock to prevent concurrent notification processing on the same
-    parent thread. If a notification arrives while already processing, just skip
-    triggering the agent (the running agent will see the new message).
+    Uses a per-parent asyncio.Queue so notifications are processed one at a time
+    but none are dropped. A background worker drains the queue sequentially.
     """
-    # Skip if already processing notifications for this thread
-    if thread_id in _processing_notifications:
-        logger.info(f"Skipping notification for {thread_id} - already processing")
-        return
+    # Ensure queue and worker exist for this parent thread
+    if thread_id not in _notification_queues:
+        _notification_queues[thread_id] = asyncio.Queue()
+        worker = asyncio.create_task(_notification_worker(thread_id))
+        worker.add_done_callback(
+            lambda t: logger.error(f"Notification worker for {thread_id} failed: {t.exception()}")
+            if t.exception() else None
+        )
+        _notification_workers[thread_id] = worker
 
-    _processing_notifications.add(thread_id)
-    try:
-        thread = get_thread(thread_id)
-        if not thread:
-            logger.error(f"Thread {thread_id} not found for notification processing")
+    await _notification_queues[thread_id].put(notification_content)
+    logger.info(f"Enqueued notification for parent thread {thread_id}")
+
+
+async def _notification_worker(thread_id: str) -> None:
+    """Background worker that processes notifications sequentially for a parent thread."""
+    queue = _notification_queues[thread_id]
+    while True:
+        try:
+            notification_content = await queue.get()
+        except asyncio.CancelledError:
             return
 
-        # Don't add message - it's already added by the caller
-        update_thread_status(thread_id, "pending")
+        try:
+            thread = get_thread(thread_id)
+            if not thread:
+                logger.error(f"Thread {thread_id} not found for notification processing")
+                continue
 
-        # Use shared message processor
-        processor = MessageStreamProcessor(thread_id)
+            # Don't add message - it's already added by the caller
+            update_thread_status(thread_id, "pending")
 
-        async with _agent_semaphore:
-            async with asyncio.timeout(300):
-                async for msg in run_agent(thread, notification_content):
-                    await processor.process_message(msg)
+            # Use shared message processor
+            processor = MessageStreamProcessor(thread_id)
 
-        await processor.finalize()
+            async with _agent_semaphore:
+                async with asyncio.timeout(300):
+                    async for msg in run_agent(thread, notification_content):
+                        await processor.process_message(msg)
 
-        # Message already saved incrementally by processor
-        assistant_message = processor._message
+            await processor.finalize()
 
-        # Update thread status and session
-        update_thread_status(thread_id, processor.final_status)
-        if processor.final_session_id:
-            update_thread_session(thread_id, processor.final_session_id)
+            # Message already saved incrementally by processor
+            assistant_message = processor._message
 
-        # Notify subscribers of completion
-        await broadcast_to_thread(thread_id, {
-            "type": "complete",
-            "data": {"assistantMessage": assistant_message, "status": processor.final_status},
-        })
+            # Update thread status and session
+            update_thread_status(thread_id, processor.final_status)
+            if processor.final_session_id:
+                update_thread_session(thread_id, processor.final_session_id)
 
-    except TimeoutError:
-        logger.error(f"Agent timeout in thread {thread_id} (notification)")
-        update_thread_status(thread_id, "needs_attention")
-        await broadcast_to_thread(thread_id, {
-            "type": "error",
-            "data": {"error": "Request timed out after 5 minutes"},
-        })
+            # Notify subscribers of completion
+            await broadcast_to_thread(thread_id, {
+                "type": "complete",
+                "data": {"assistantMessage": assistant_message, "status": processor.final_status},
+            })
 
-    except Exception as e:
-        error_msg = str(e) or type(e).__name__
-        logger.exception(f"Error processing notification in thread {thread_id}: {error_msg}")
-        update_thread_status(thread_id, "needs_attention")
-        await broadcast_to_thread(thread_id, {
-            "type": "error",
-            "data": {"error": error_msg},
-        })
+        except TimeoutError:
+            logger.error(f"Agent timeout in thread {thread_id} (notification)")
+            update_thread_status(thread_id, "needs_attention")
+            await broadcast_to_thread(thread_id, {
+                "type": "error",
+                "data": {"error": "Request timed out after 5 minutes"},
+            })
 
-    finally:
-        _processing_notifications.discard(thread_id)
+        except Exception as e:
+            error_msg = str(e) or type(e).__name__
+            logger.exception(f"Error processing notification in thread {thread_id}: {error_msg}")
+            update_thread_status(thread_id, "needs_attention")
+            await broadcast_to_thread(thread_id, {
+                "type": "error",
+                "data": {"error": error_msg},
+            })
 
 
 async def run_thread_for_agent(thread_id: str, message: str, skip_add_message: bool = False) -> None:
@@ -823,7 +893,16 @@ async def run_thread_for_agent(thread_id: str, message: str, skip_add_message: b
         # Use shared message processor
         processor = MessageStreamProcessor(thread_id)
 
+        # Notify frontend if waiting for semaphore slot
+        await broadcast_to_thread(thread_id, {
+            "type": "queue_waiting",
+            "data": {"message": "Waiting for available slot..."},
+        })
         async with _agent_semaphore:
+            await broadcast_to_thread(thread_id, {
+                "type": "queue_acquired",
+                "data": {},
+            })
             async with asyncio.timeout(300):  # 5 minute timeout
                 async for msg in run_agent(thread, message):
                     await processor.process_message(msg)

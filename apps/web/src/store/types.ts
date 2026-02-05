@@ -166,3 +166,6 @@ export interface TokenInfo {
   messageCount: number;
   warnings: string[];
 }
+
+// Queue waiting state for threads waiting for an available slot
+export type QueueWaiting = Record<string, boolean>;

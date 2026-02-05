@@ -15,7 +15,7 @@ const STATUS_COLORS: Record<ThreadStatus, { bg: string; label: string }> = {
   needs_attention: { bg: 'bg-red-500', label: 'Needs attention' },
   pending: { bg: 'bg-orange-500', label: 'Processing' },
   active: { bg: 'bg-green-500', label: 'Active' },
-  done: { bg: 'bg-green-500', label: 'Done' },
+  done: { bg: 'bg-gray-400', label: 'Done' },
   new_message: { bg: 'bg-red-500', label: 'New message' },
 };
 

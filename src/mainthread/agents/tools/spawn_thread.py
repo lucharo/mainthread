@@ -103,9 +103,9 @@ def create_spawn_thread_tool(
             if initial_message:
                 if registry.run_thread:
                     # Fire-and-forget: start the sub-thread in background
-                    # Delay allows frontend time to subscribe to SSE
+                    # Yield to event loop (frontend uses lastEventId='0' for replay)
                     async def delayed_run():
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(0)
                         # Skip adding message since we already added it above
                         await registry.run_thread(new_thread["id"], initial_message, skip_add_message=True)
 

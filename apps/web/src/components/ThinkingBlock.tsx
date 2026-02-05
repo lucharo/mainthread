@@ -19,7 +19,7 @@ export function ThinkingBlock({
   onToggle,
 }: ThinkingBlockProps) {
   // Use local state when not in controlled mode
-  const [localExpanded, setLocalExpanded] = useState(false);
+  const [localExpanded, setLocalExpanded] = useState(isStreaming);
 
   // Use controlled props if provided, otherwise fall back to local state
   const isControlled = isExpanded !== undefined && onToggle !== undefined;

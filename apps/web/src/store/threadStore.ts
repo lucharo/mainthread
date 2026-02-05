@@ -63,6 +63,8 @@ interface ThreadState {
   lastSeenEventId: Record<string, string>;
   // Child thread pending questions (forwarded from sub-threads)
   childPendingQuestions: Record<string, ChildPendingQuestion[]>;
+  // Track threads waiting in queue for an available slot
+  queueWaiting: Record<string, boolean>;
 
   // Actions
   setActiveThread: (id: string | null) => void;
@@ -160,6 +162,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   spawnedThreadIds: {},
   lastSeenEventId: {},
   childPendingQuestions: {},
+  queueWaiting: {},
 
   setActiveThread: (id) => {
     const prevId = get().activeThreadId;
@@ -658,8 +661,10 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       // Dedup: skip events with IDs already processed (reconnection replay)
       if (event.lastEventId) {
         const lastSeen = get().lastSeenEventId[threadId];
-        if (lastSeen && event.lastEventId <= lastSeen) {
-          return;
+        const lastSeenNum = parseInt(lastSeen, 10);
+        const currentNum = parseInt(event.lastEventId, 10);
+        if (!isNaN(lastSeenNum) && !isNaN(currentNum) && currentNum <= lastSeenNum) {
+          return; // Skip already-seen event
         }
         set((state) => ({
           lastSeenEventId: { ...state.lastSeenEventId, [threadId]: event.lastEventId },
@@ -678,8 +683,10 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       // Dedup: skip events with IDs already processed (reconnection replay)
       if (event.lastEventId) {
         const lastSeen = get().lastSeenEventId[threadId];
-        if (lastSeen && event.lastEventId <= lastSeen) {
-          return;
+        const lastSeenNum = parseInt(lastSeen, 10);
+        const currentNum = parseInt(event.lastEventId, 10);
+        if (!isNaN(lastSeenNum) && !isNaN(currentNum) && currentNum <= lastSeenNum) {
+          return; // Skip already-seen event
         }
         set((state) => ({
           lastSeenEventId: { ...state.lastSeenEventId, [threadId]: event.lastEventId },
@@ -893,6 +900,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         // that created this thread. This fires before tool_result, so we populate
         // spawnedThreadIds early to prevent duplicate notifications.
         const blocks = get().streamingBlocks[threadId] || [];
+        let matchedToolUseId: string | undefined;
         for (const block of blocks) {
           if (
             block.type === 'tool_use' &&
@@ -904,17 +912,44 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
             const inputTitle = block.input?.title as string | undefined;
             if (inputTitle && inputTitle === data.thread!.title) {
               get().setSpawnedThreadId(block.id, data.thread!.id);
+              matchedToolUseId = block.id;
               break;
             }
           }
         }
 
-        // Add notification for the current thread
-        get().addThreadNotification(threadId, {
-          threadId: data.thread.id,
-          threadTitle: data.thread.title,
-          timestamp: new Date().toISOString(),
-        });
+        if (!matchedToolUseId) {
+          // SpawnThread block may not have arrived yet - defer and retry
+          setTimeout(() => {
+            const retryBlocks = get().streamingBlocks[threadId] || [];
+            const retryMatch = retryBlocks.find(
+              (b) =>
+                b.type === 'tool_use' &&
+                b.name === 'SpawnThread' &&
+                b.id &&
+                !get().spawnedThreadIds[b.id!] &&
+                (b.input?.title as string | undefined) === data.thread!.title
+            );
+            if (retryMatch && retryMatch.id) {
+              // Found it on retry - add to spawnedThreadIds mapping
+              get().setSpawnedThreadId(retryMatch.id, data.thread!.id);
+            } else {
+              // Still no match after delay - show notification
+              get().addThreadNotification(threadId, {
+                threadId: data.thread!.id,
+                threadTitle: data.thread!.title,
+                timestamp: new Date().toISOString(),
+              });
+            }
+          }, 200);
+        } else {
+          // Matched immediately - add notification
+          get().addThreadNotification(threadId, {
+            threadId: data.thread!.id,
+            threadTitle: data.thread!.title,
+            timestamp: new Date().toISOString(),
+          });
+        }
         // Auto-subscribe to the new child thread to accumulate its streaming blocks
         // This ensures we don't miss any content when the subthread starts processing
         if (data.thread.parentId === threadId) {
@@ -1040,51 +1075,69 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       }
     });
 
+    eventSource.addEventListener('queue_waiting', (event) => {
+      updateLastEventId(event);
+      console.log('[SSE] queue_waiting received for thread', threadId);
+      set((state) => ({
+        queueWaiting: { ...state.queueWaiting, [threadId]: true },
+      }));
+    });
+
+    eventSource.addEventListener('queue_acquired', (event) => {
+      updateLastEventId(event);
+      console.log('[SSE] queue_acquired received for thread', threadId);
+      set((state) => ({
+        queueWaiting: { ...state.queueWaiting, [threadId]: false },
+      }));
+    });
+
     eventSource.addEventListener('complete', (event) => {
       updateLastEventId(event);
       const data = safeJsonParse<{ userMessage?: Message; assistantMessage?: Message; status?: ThreadStatus }>(event.data, {});
       console.log('[SSE] complete received');
 
-      // Delay clearing streaming blocks to allow collapse animation to complete
+      // Delay BOTH clearing streaming blocks AND updating messages so they happen
+      // at the same time. This prevents a ~600ms window where both streaming blocks
+      // AND persisted message content render simultaneously.
       setTimeout(() => {
         get().clearStreamingBlocks(threadId);
+
+        // Update thread with final messages and status (single source of truth)
+        set((state) => {
+          const thread = state.threads.find((t) => t.id === threadId);
+          if (!thread) return state;
+
+          let updatedMessages = [...thread.messages];
+
+          // Replace optimistic user message with persisted one (matching by content or temp ID)
+          if (data.userMessage) {
+            const tempIdx = updatedMessages.findIndex(
+              (m) => m.id.startsWith('temp-') && m.role === 'user'
+            );
+            if (tempIdx >= 0) {
+              updatedMessages[tempIdx] = data.userMessage;
+            } else if (!updatedMessages.some((m) => m.id === data.userMessage!.id)) {
+              updatedMessages.push(data.userMessage);
+            }
+          }
+
+          // Add assistant message if not already present
+          if (data.assistantMessage) {
+            const assistantExists = updatedMessages.some((m) => m.id === data.assistantMessage!.id);
+            if (!assistantExists) {
+              updatedMessages.push(data.assistantMessage);
+            }
+          }
+
+          return {
+            threads: state.threads.map((t) =>
+              t.id === threadId
+                ? { ...t, messages: updatedMessages, status: data.status || t.status }
+                : t
+            ),
+          };
+        });
       }, STREAMING_BLOCK_CLEAR_DELAY_MS);
-
-      // Update thread with final messages and status (single source of truth)
-      set((state) => {
-        const thread = state.threads.find((t) => t.id === threadId);
-        if (!thread) return state;
-
-        let updatedMessages = [...thread.messages];
-
-        // Replace optimistic user message with persisted one (matching by content or temp ID)
-        if (data.userMessage) {
-          const tempIdx = updatedMessages.findIndex(
-            (m) => m.id.startsWith('temp-') && m.role === 'user'
-          );
-          if (tempIdx >= 0) {
-            updatedMessages[tempIdx] = data.userMessage;
-          } else if (!updatedMessages.some((m) => m.id === data.userMessage!.id)) {
-            updatedMessages.push(data.userMessage);
-          }
-        }
-
-        // Add assistant message if not already present
-        if (data.assistantMessage) {
-          const assistantExists = updatedMessages.some((m) => m.id === data.assistantMessage!.id);
-          if (!assistantExists) {
-            updatedMessages.push(data.assistantMessage);
-          }
-        }
-
-        return {
-          threads: state.threads.map((t) =>
-            t.id === threadId
-              ? { ...t, messages: updatedMessages, status: data.status || t.status }
-              : t
-          ),
-        };
-      });
     });
 
     eventSource.addEventListener('error', (event: Event) => {
@@ -1492,7 +1545,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     Object.values(sseConnections).forEach((conn) => {
       conn.eventSource.close();
     });
-    set({ sseConnections: {}, streamingBlocks: {}, expandedStreamingBlockId: {}, recentToolBlockIds: {}, pendingQuestion: {}, pendingPlanApproval: {}, threadNotifications: {}, pagination: {}, spawnedThreadIds: {}, lastSeenEventId: {}, childPendingQuestions: {} });
+    set({ sseConnections: {}, streamingBlocks: {}, expandedStreamingBlockId: {}, recentToolBlockIds: {}, pendingQuestion: {}, pendingPlanApproval: {}, threadNotifications: {}, pagination: {}, spawnedThreadIds: {}, lastSeenEventId: {}, childPendingQuestions: {}, queueWaiting: {} });
   },
 
   setSpawnedThreadId: (toolUseId, threadId) => {

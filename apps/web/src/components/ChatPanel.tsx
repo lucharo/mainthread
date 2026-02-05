@@ -166,6 +166,7 @@ export function ChatPanel() {
   const threadNotifications = useThreadStore((state) => state.threadNotifications);
   const spawnedThreadIds = useThreadStore((state) => state.spawnedThreadIds);
   const error = useThreadStore((state) => state.error);
+  const queueWaiting = useThreadStore((state) => (state as unknown as Record<string, unknown>).queueWaiting as Record<string, boolean> | undefined);
 
   // Actions don't cause re-renders, safe to group
   const sendMessage = useThreadStore((state) => state.sendMessage);
@@ -606,8 +607,7 @@ export function ChatPanel() {
           // A message with '[streaming...]' content and active streaming blocks is currently streaming
           const shouldSkipContentBlocks = item.type === 'message' &&
             item.data.role === 'assistant' &&
-            item.data.content === '[streaming...]' &&
-            currentStreamingBlocks.length > 0;
+            item.data.content === '[streaming...]';
 
           return item.type === 'message' ? (
             <MessageBubble key={item.data.id} message={item.data} skipContentBlocks={shouldSkipContentBlocks} />
@@ -658,7 +658,7 @@ export function ChatPanel() {
 
         {/* Processing indicator - with minimum display time for visibility */}
         {showProcessingIndicator && (
-          <ProcessingBlock />
+          <ProcessingBlock message={queueWaiting?.[activeThread?.id || ''] ? 'Waiting for available slot...' : undefined} />
         )}
 
         {/* Inline question block */}

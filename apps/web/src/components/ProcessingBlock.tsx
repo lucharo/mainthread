@@ -1,11 +1,15 @@
 import { AssistantBlock } from './AssistantBlock';
 
+interface ProcessingBlockProps {
+  message?: string;
+}
+
 /**
  * Visual indicator shown while waiting for Claude to respond.
  * Displayed when a message is pending but no streaming content has arrived yet.
  * Matches ThinkingBlock styling for visual consistency.
  */
-export function ProcessingBlock() {
+export function ProcessingBlock({ message }: ProcessingBlockProps) {
   return (
     <AssistantBlock>
       <div className="processing-block bg-blue-50/60 dark:bg-blue-900/15 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2">
@@ -34,7 +38,7 @@ export function ProcessingBlock() {
           </span>
           {/* Message with animated dots */}
           <span className="text-sm font-medium flex items-center gap-2">
-            Thinking
+            {message || 'Thinking'}
             <span className="flex gap-0.5">
               <span
                 className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce"
