@@ -20,6 +20,7 @@ export type {
   PendingPlanApproval,
   DirectoryEntry,
   GitInfo,
+  ChildPendingQuestion,
 } from './types';
 
 import type {
@@ -35,6 +36,7 @@ import type {
   CreateThreadOptions,
   PaginationState,
   PendingPlanApproval,
+  ChildPendingQuestion,
 } from './types';
 
 interface ThreadState {
@@ -57,6 +59,10 @@ interface ThreadState {
   pagination: Record<string, PaginationState>;
   // Maps SpawnThread tool_use_id to the created thread's ID (for reliable thread lookup)
   spawnedThreadIds: Record<string, string>;
+  // Track last seen SSE event ID per thread (for dedup on reconnection)
+  lastSeenEventId: Record<string, string>;
+  // Child thread pending questions (forwarded from sub-threads)
+  childPendingQuestions: Record<string, ChildPendingQuestion[]>;
 
   // Actions
   setActiveThread: (id: string | null) => void;
@@ -100,6 +106,8 @@ interface ThreadState {
   cleanupAllConnections: () => void;
   setSpawnedThreadId: (toolUseId: string, threadId: string) => void;
   getSpawnedThreadId: (toolUseId: string) => string | undefined;
+  setChildPendingQuestion: (parentThreadId: string, question: ChildPendingQuestion) => void;
+  clearChildPendingQuestion: (parentThreadId: string, childThreadId: string) => void;
 }
 
 const API_BASE = '/api';
@@ -150,6 +158,8 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   threadNotifications: {},
   pagination: {},
   spawnedThreadIds: {},
+  lastSeenEventId: {},
+  childPendingQuestions: {},
 
   setActiveThread: (id) => {
     const prevId = get().activeThreadId;
@@ -645,6 +655,16 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
 
     eventSource.addEventListener('text_delta', (event) => {
       updateLastEventId(event);
+      // Dedup: skip events with IDs already processed (reconnection replay)
+      if (event.lastEventId) {
+        const lastSeen = get().lastSeenEventId[threadId];
+        if (lastSeen && event.lastEventId <= lastSeen) {
+          return;
+        }
+        set((state) => ({
+          lastSeenEventId: { ...state.lastSeenEventId, [threadId]: event.lastEventId },
+        }));
+      }
       const data = safeJsonParse(event.data, { content: '' });
       console.log('[SSE] text_delta received:', data.content?.slice(0, 50));
       if (data.content) {
@@ -655,6 +675,16 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
 
     eventSource.addEventListener('thinking', (event) => {
       updateLastEventId(event);
+      // Dedup: skip events with IDs already processed (reconnection replay)
+      if (event.lastEventId) {
+        const lastSeen = get().lastSeenEventId[threadId];
+        if (lastSeen && event.lastEventId <= lastSeen) {
+          return;
+        }
+        set((state) => ({
+          lastSeenEventId: { ...state.lastSeenEventId, [threadId]: event.lastEventId },
+        }));
+      }
       const data = safeJsonParse<{ content?: string; signature?: string }>(event.data, {});
       console.log('[SSE] thinking received:', data.content?.slice(0, 50));
       if (data.content) {
@@ -858,6 +888,27 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
           if (exists) return state;
           return { threads: [...state.threads, data.thread!] };
         });
+
+        // Cross-reference with current streaming blocks to find the SpawnThread tool_use
+        // that created this thread. This fires before tool_result, so we populate
+        // spawnedThreadIds early to prevent duplicate notifications.
+        const blocks = get().streamingBlocks[threadId] || [];
+        for (const block of blocks) {
+          if (
+            block.type === 'tool_use' &&
+            block.name === 'SpawnThread' &&
+            block.id &&
+            !get().spawnedThreadIds[block.id]
+          ) {
+            // Match by title from the tool input
+            const inputTitle = block.input?.title as string | undefined;
+            if (inputTitle && inputTitle === data.thread!.title) {
+              get().setSpawnedThreadId(block.id, data.thread!.id);
+              break;
+            }
+          }
+        }
+
         // Add notification for the current thread
         get().addThreadNotification(threadId, {
           threadId: data.thread.id,
@@ -874,6 +925,79 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
             get().subscribeToThread(data.thread!.id, '0');
           }
         }
+      }
+    });
+
+    eventSource.addEventListener('subagent_start', (event) => {
+      updateLastEventId(event);
+      const data = safeJsonParse<{
+        threadId?: string;
+        title?: string;
+        parentId?: string;
+        status?: ThreadStatus;
+      }>(event.data, {});
+      if (data.threadId) {
+        // Add ephemeral thread to the threads array
+        set((state) => {
+          const exists = state.threads.some((t) => t.id === data.threadId);
+          if (exists) return state;
+          const ephemeralThread: Thread = {
+            id: data.threadId!,
+            title: data.title || 'Sub-agent',
+            status: data.status || 'active',
+            parentId: data.parentId || threadId,
+            messages: [],
+            sessionId: null,
+            model: 'claude-sonnet-4-5',
+            extendedThinking: false,
+            permissionMode: 'bypassPermissions',
+            autoReact: false,
+            gitBranch: null,
+            gitRepo: null,
+            isWorktree: false,
+            worktreeBranch: null,
+            archivedAt: null,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            isEphemeral: true,
+            isReadOnly: true,
+          };
+          return { threads: [...state.threads, ephemeralThread] };
+        });
+      }
+    });
+
+    eventSource.addEventListener('subagent_stop', (event) => {
+      updateLastEventId(event);
+      const data = safeJsonParse<{
+        threadId?: string;
+        status?: ThreadStatus;
+      }>(event.data, {});
+      if (data.threadId) {
+        set((state) => ({
+          threads: state.threads.map((t) =>
+            t.id === data.threadId
+              ? { ...t, status: data.status || 'done' }
+              : t
+          ),
+        }));
+      }
+    });
+
+    eventSource.addEventListener('child_question', (event) => {
+      updateLastEventId(event);
+      const data = safeJsonParse<{
+        childThreadId?: string;
+        childTitle?: string;
+        questions?: AgentQuestion[];
+      }>(event.data, {});
+      if (data.childThreadId && data.questions && data.questions.length > 0) {
+        // Key by parent thread ID (threadId) since the parent needs to look this up
+        get().setChildPendingQuestion(threadId, {
+          childThreadId: data.childThreadId,
+          childTitle: data.childTitle || 'Sub-thread',
+          questions: data.questions,
+        });
       }
     });
 
@@ -1067,6 +1191,16 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     set((state) => {
       const existingBlocks = state.streamingBlocks[threadId] || [];
       const existingQueue = state.recentToolBlockIds[threadId] || [];
+
+      // Dedup: skip tool_use blocks that already exist (e.g., on SSE reconnection replay)
+      if (block.type === 'tool_use' && block.id) {
+        const alreadyExists = existingBlocks.some(
+          (b) => b.type === 'tool_use' && b.id === block.id
+        );
+        if (alreadyExists) {
+          return state;
+        }
+      }
 
       // Start with finalized blocks
       let updatedBlocks = existingBlocks.map(b => ({ ...b, isFinalized: true }));
@@ -1358,7 +1492,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     Object.values(sseConnections).forEach((conn) => {
       conn.eventSource.close();
     });
-    set({ sseConnections: {}, streamingBlocks: {}, expandedStreamingBlockId: {}, recentToolBlockIds: {}, pendingQuestion: {}, pendingPlanApproval: {}, threadNotifications: {}, pagination: {}, spawnedThreadIds: {} });
+    set({ sseConnections: {}, streamingBlocks: {}, expandedStreamingBlockId: {}, recentToolBlockIds: {}, pendingQuestion: {}, pendingPlanApproval: {}, threadNotifications: {}, pagination: {}, spawnedThreadIds: {}, lastSeenEventId: {}, childPendingQuestions: {} });
   },
 
   setSpawnedThreadId: (toolUseId, threadId) => {
@@ -1369,5 +1503,36 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
 
   getSpawnedThreadId: (toolUseId) => {
     return get().spawnedThreadIds[toolUseId];
+  },
+
+  setChildPendingQuestion: (parentThreadId, question) => {
+    set((state) => {
+      const existing = state.childPendingQuestions[parentThreadId] || [];
+      // Replace if same child already has a question, otherwise append
+      const filtered = existing.filter((q) => q.childThreadId !== question.childThreadId);
+      return {
+        childPendingQuestions: {
+          ...state.childPendingQuestions,
+          [parentThreadId]: [...filtered, question],
+        },
+      };
+    });
+  },
+
+  clearChildPendingQuestion: (parentThreadId, childThreadId) => {
+    set((state) => {
+      const existing = state.childPendingQuestions[parentThreadId] || [];
+      const filtered = existing.filter((q) => q.childThreadId !== childThreadId);
+      if (filtered.length === 0) {
+        const { [parentThreadId]: _, ...rest } = state.childPendingQuestions;
+        return { childPendingQuestions: rest };
+      }
+      return {
+        childPendingQuestions: {
+          ...state.childPendingQuestions,
+          [parentThreadId]: filtered,
+        },
+      };
+    });
   },
 }));

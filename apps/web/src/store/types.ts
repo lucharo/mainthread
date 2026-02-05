@@ -43,6 +43,9 @@ export interface Thread {
   // Actual token usage from SDK (updated after each agent run)
   lastUsage?: Record<string, number>;
   lastCostUsd?: number;
+  // Ephemeral sub-agent threads (not persisted, shown inline)
+  isEphemeral?: boolean;
+  isReadOnly?: boolean;
 }
 
 export interface SSEConnection {
@@ -140,6 +143,12 @@ export interface GitInfo {
   branches: string[];
   isWorktree: boolean;
   worktreeBranch: string | null;
+}
+
+export interface ChildPendingQuestion {
+  childThreadId: string;
+  childTitle: string;
+  questions: AgentQuestion[];
 }
 
 export interface PaginationState {

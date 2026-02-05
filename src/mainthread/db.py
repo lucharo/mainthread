@@ -131,6 +131,22 @@ def init_database() -> None:
         if "worktree_branch" not in thread_columns:
             conn.execute("ALTER TABLE threads ADD COLUMN worktree_branch TEXT")
 
+        # Migration: Add token usage columns for tracking costs
+        cursor = conn.execute("PRAGMA table_info(threads)")
+        thread_columns = [row[1] for row in cursor.fetchall()]
+        if "input_tokens" not in thread_columns:
+            conn.execute("ALTER TABLE threads ADD COLUMN input_tokens INTEGER DEFAULT 0")
+        if "output_tokens" not in thread_columns:
+            conn.execute("ALTER TABLE threads ADD COLUMN output_tokens INTEGER DEFAULT 0")
+        if "total_cost_usd" not in thread_columns:
+            conn.execute("ALTER TABLE threads ADD COLUMN total_cost_usd REAL DEFAULT 0.0")
+
+        # Migration: Add is_ephemeral column for Task threads
+        cursor = conn.execute("PRAGMA table_info(threads)")
+        thread_columns = [row[1] for row in cursor.fetchall()]
+        if "is_ephemeral" not in thread_columns:
+            conn.execute("ALTER TABLE threads ADD COLUMN is_ephemeral INTEGER DEFAULT 0")
+
 
 def _format_thread(row: dict[str, Any], messages: list[dict[str, Any]]) -> dict[str, Any]:
     """Format thread row to match frontend expectations."""
@@ -154,6 +170,10 @@ def _format_thread(row: dict[str, Any], messages: list[dict[str, Any]]) -> dict[
         "gitRepo": row.get("git_repo"),
         "isWorktree": bool(row.get("is_worktree", 0)),
         "worktreeBranch": row.get("worktree_branch"),
+        "isEphemeral": bool(row.get("is_ephemeral", 0)),
+        "inputTokens": row.get("input_tokens", 0) or 0,
+        "outputTokens": row.get("output_tokens", 0) or 0,
+        "totalCostUsd": row.get("total_cost_usd", 0.0) or 0.0,
         "archivedAt": row.get("archived_at"),
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
@@ -171,6 +191,7 @@ def get_all_threads(include_archived: bool = False) -> list[dict[str, Any]]:
                 t.id, t.title, t.status, t.parent_id, t.work_dir,
                 t.session_id, t.model, t.extended_thinking, t.plan_mode, t.permission_mode,
                 t.auto_react, t.git_branch, t.git_repo, t.is_worktree, t.worktree_branch,
+                t.is_ephemeral, t.input_tokens, t.output_tokens, t.total_cost_usd,
                 t.archived_at, t.created_at, t.updated_at,
                 m.id as msg_id, m.role, m.content, m.content_blocks, m.timestamp as msg_timestamp
             FROM threads t
@@ -203,6 +224,10 @@ def get_all_threads(include_archived: bool = False) -> list[dict[str, Any]]:
                     "git_repo": row_dict.get("git_repo"),
                     "is_worktree": row_dict.get("is_worktree", 0),
                     "worktree_branch": row_dict.get("worktree_branch"),
+                    "is_ephemeral": row_dict.get("is_ephemeral", 0),
+                    "input_tokens": row_dict.get("input_tokens", 0),
+                    "output_tokens": row_dict.get("output_tokens", 0),
+                    "total_cost_usd": row_dict.get("total_cost_usd", 0.0),
                     "archived_at": row_dict.get("archived_at"),
                     "created_at": row_dict["created_at"],
                     "updated_at": row_dict["updated_at"],
@@ -764,6 +789,125 @@ def update_thread_title(thread_id: str, title: str) -> bool:
             (title, now, thread_id),
         )
         return cursor.rowcount > 0
+
+
+def create_ephemeral_thread(
+    thread_id: str,
+    title: str,
+    parent_id: str,
+    work_dir: str | None = None,
+) -> dict[str, Any]:
+    """Create an ephemeral thread record for a Task subagent.
+
+    These threads are read-only in the UI and represent background Task executions.
+
+    Args:
+        thread_id: Pre-generated thread ID (from tool_use_id or similar)
+        title: Display title for the ephemeral thread
+        parent_id: The parent thread that spawned this task
+        work_dir: Working directory (inherited from parent if not specified)
+
+    Returns:
+        The created thread dict.
+    """
+    now = datetime.now().isoformat()
+
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO threads (id, title, parent_id, work_dir, status, is_ephemeral,
+                                 created_at, updated_at)
+            VALUES (?, ?, ?, ?, 'pending', 1, ?, ?)
+            """,
+            (thread_id, title, parent_id, work_dir, now, now),
+        )
+
+    thread = get_thread(thread_id)
+    if thread is None:
+        raise RuntimeError(f"Failed to create ephemeral thread {thread_id}")
+    return thread
+
+
+def update_thread_usage(
+    thread_id: str,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    total_cost_usd: float = 0.0,
+) -> None:
+    """Cumulatively add token usage to a thread's stored values.
+
+    Args:
+        thread_id: The thread to update
+        input_tokens: Input tokens to add
+        output_tokens: Output tokens to add
+        total_cost_usd: Cost in USD to add
+    """
+    now = datetime.now().isoformat()
+    with get_db() as conn:
+        conn.execute(
+            """
+            UPDATE threads SET
+                input_tokens = COALESCE(input_tokens, 0) + ?,
+                output_tokens = COALESCE(output_tokens, 0) + ?,
+                total_cost_usd = COALESCE(total_cost_usd, 0.0) + ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (input_tokens, output_tokens, total_cost_usd, now, thread_id),
+        )
+
+
+def get_thread_usage_with_children(thread_id: str) -> dict[str, Any]:
+    """Get aggregated token usage for a thread including all child threads.
+
+    Returns:
+        Dict with own usage, children usage, and total.
+    """
+    with get_db() as conn:
+        # Get own usage
+        cursor = conn.execute(
+            "SELECT input_tokens, output_tokens, total_cost_usd FROM threads WHERE id = ?",
+            (thread_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return {
+                "inputTokens": 0,
+                "outputTokens": 0,
+                "totalCostUsd": 0.0,
+                "childrenInputTokens": 0,
+                "childrenOutputTokens": 0,
+                "childrenTotalCostUsd": 0.0,
+            }
+
+        own_input = row[0] or 0
+        own_output = row[1] or 0
+        own_cost = row[2] or 0.0
+
+        # Get children usage
+        cursor = conn.execute(
+            """
+            SELECT
+                COALESCE(SUM(input_tokens), 0),
+                COALESCE(SUM(output_tokens), 0),
+                COALESCE(SUM(total_cost_usd), 0.0)
+            FROM threads WHERE parent_id = ?
+            """,
+            (thread_id,),
+        )
+        child_row = cursor.fetchone()
+        child_input = child_row[0] or 0
+        child_output = child_row[1] or 0
+        child_cost = child_row[2] or 0.0
+
+        return {
+            "inputTokens": own_input,
+            "outputTokens": own_output,
+            "totalCostUsd": own_cost,
+            "childrenInputTokens": child_input,
+            "childrenOutputTokens": child_output,
+            "childrenTotalCostUsd": child_cost,
+        }
 
 
 def get_recent_work_dirs(limit: int = 5) -> list[str]:

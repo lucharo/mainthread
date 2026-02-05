@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useMemo, useEffect, useRef, useState } from 'react';
 import { COLLAPSE_ANIMATION_DURATION_MS } from '../constants/animations';
 import { useThreadStore } from '../store/threadStore';
 import { formatToolName } from '../utils/format';
+import { formatExpandedToolInput } from '../utils/formatToolInput';
 import { getToolPreview } from '../utils/toolPreviews';
 import { AssistantBlock } from './AssistantBlock';
 import type { ToolUse } from './ToolUseBlock';
@@ -181,6 +182,12 @@ function ToolHistoryItem({
   const hasMeaningfulInput = hasInput && JSON.stringify(tool.input) !== '{}';
   const preview = getToolPreview(tool.name, tool.input, { maxLength: 45, getThreadTitle });
 
+  // Formatted expanded content
+  const formatted = useMemo(() => {
+    if (!tool.name || !tool.input) return null;
+    return formatExpandedToolInput(tool.name, tool.input);
+  }, [tool.name, tool.input]);
+
   // For SpawnThread, find the thread ID by title
   const isSpawnThread = tool.name === 'SpawnThread';
   const spawnedThreadTitle = isSpawnThread && tool.input?.title ? String(tool.input.title) : null;
@@ -261,11 +268,16 @@ function ToolHistoryItem({
           </button>
         )}
       </div>
-      {showInput && hasMeaningfulInput && (
+      {showInput && hasMeaningfulInput && formatted && (
         <div className="px-4 pb-2 text-xs text-gray-500 dark:text-gray-500 overflow-hidden max-w-full">
-          <pre className="whitespace-pre-wrap break-words font-mono leading-relaxed bg-gray-200/50 dark:bg-gray-900/50 p-2 rounded">
-            {JSON.stringify(tool.input, null, 2)}
-          </pre>
+          {formatted.summary && (
+            <div className="font-mono text-gray-600 dark:text-gray-400 mb-1">{formatted.summary}</div>
+          )}
+          {formatted.details && (
+            <pre className="whitespace-pre-wrap break-words font-mono leading-relaxed bg-gray-200/50 dark:bg-gray-900/50 p-2 rounded">
+              {formatted.details}
+            </pre>
+          )}
         </div>
       )}
     </div>

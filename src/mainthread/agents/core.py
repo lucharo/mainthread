@@ -589,6 +589,9 @@ async def run_agent(
 
     logger.debug(f"[AGENT] Starting agent for thread {thread_id}, model: {model}")
 
+    # Skip SDK version check to reduce startup latency
+    env = {**os.environ, "CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK": "1"}
+
     # Create client options directly (no caching - fresh client per request)
     options = ClaudeAgentOptions(
         system_prompt=system_prompt,
@@ -602,6 +605,7 @@ async def run_agent(
         settings=settings_json,
         hooks={"SubagentStop": [subagent_stop_hook]},
         include_partial_messages=True,
+        env=env,
     )
 
     collected_content: list[str] = []

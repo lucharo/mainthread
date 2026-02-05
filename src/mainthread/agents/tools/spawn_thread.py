@@ -1,11 +1,14 @@
 """SpawnThread tool for creating sub-threads."""
 
 import asyncio
+import logging
 from typing import Any
 
 from claude_agent_sdk import tool
 
 from mainthread.agents.registry import get_registry
+
+logger = logging.getLogger(__name__)
 
 
 def create_spawn_thread_tool(
@@ -106,7 +109,11 @@ def create_spawn_thread_tool(
                         # Skip adding message since we already added it above
                         await registry.run_thread(new_thread["id"], initial_message, skip_add_message=True)
 
-                    asyncio.create_task(delayed_run())
+                    task = asyncio.create_task(delayed_run())
+                    task.add_done_callback(
+                        lambda t: logger.error(f"SpawnThread background task failed: {t.exception()}")
+                        if t.exception() else None
+                    )
                 # Include thread_id in JSON format at end of text for server to parse
                 return {
                     "content": [

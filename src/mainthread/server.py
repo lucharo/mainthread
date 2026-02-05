@@ -45,6 +45,7 @@ from mainthread.db import (
     add_message,
     archive_thread,
     clear_thread_messages,
+    create_ephemeral_thread,
     create_thread,
     estimate_thread_tokens,
     get_all_threads,
@@ -52,6 +53,7 @@ from mainthread.db import (
     get_recent_work_dirs,
     get_thread,
     get_thread_messages_formatted,
+    get_thread_usage_with_children,
     reset_all_threads,
     unarchive_thread,
     update_message,
@@ -59,6 +61,7 @@ from mainthread.db import (
     update_thread_session,
     update_thread_status,
     update_thread_title,
+    update_thread_usage,
 )
 
 load_dotenv()
@@ -110,6 +113,10 @@ sse_event_store = SSEEventStore()
 
 # Track parent threads currently processing notifications to prevent duplicates
 _processing_notifications: set[str] = set()
+
+# Concurrency control: limit concurrent Claude agent processes
+MAX_CONCURRENT_AGENTS = int(os.environ.get("MAINTHREAD_MAX_AGENTS", "10"))
+_agent_semaphore = asyncio.Semaphore(MAX_CONCURRENT_AGENTS)
 
 
 @asynccontextmanager
@@ -340,6 +347,36 @@ class MessageStreamProcessor:
                 "data": tool_data,
             })
 
+            # Detect Task tool invocations and create ephemeral thread records
+            if tool_name == "Task" and tool_id:
+                tool_input = tool_data.get("input") or {}
+                task_description = tool_input.get("description", "")
+                subagent_type = tool_input.get("subagent_type", "general")
+                ephemeral_title = f"Task: {subagent_type}"
+                if task_description:
+                    # Use first 60 chars of description as title
+                    ephemeral_title = task_description[:60] + ("..." if len(task_description) > 60 else "")
+
+                try:
+                    parent_thread = get_thread(self.thread_id)
+                    work_dir = parent_thread.get("workDir") if parent_thread else None
+                    create_ephemeral_thread(
+                        thread_id=tool_id,
+                        title=ephemeral_title,
+                        parent_id=self.thread_id,
+                        work_dir=work_dir,
+                    )
+                    await broadcast_to_thread(self.thread_id, {
+                        "type": "subagent_start",
+                        "data": {
+                            "threadId": tool_id,
+                            "title": ephemeral_title,
+                            "subagentType": subagent_type,
+                        },
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to create ephemeral thread for Task {tool_id}: {e}")
+
             # Note: ExitPlanMode plan_approval broadcast is handled by the permission handler
             # in core.py (create_permission_handler). That handler blocks waiting for user
             # approval before allowing the tool to proceed. We don't broadcast here to avoid
@@ -402,13 +439,22 @@ class MessageStreamProcessor:
             })
 
         elif msg.type == "usage":
-            # Broadcast actual token usage from SDK
+            # Broadcast actual token usage from SDK and persist cumulatively
             if msg.metadata:
+                usage_data = msg.metadata.get("usage") or {}
+                cost = msg.metadata.get("total_cost_usd") or 0.0
+                input_tok = usage_data.get("input_tokens", 0) if isinstance(usage_data, dict) else 0
+                output_tok = usage_data.get("output_tokens", 0) if isinstance(usage_data, dict) else 0
+
+                # Persist cumulative usage to DB
+                if input_tok or output_tok or cost:
+                    update_thread_usage(self.thread_id, input_tok, output_tok, cost)
+
                 await broadcast_to_thread(self.thread_id, {
                     "type": "usage",
                     "data": {
-                        "usage": msg.metadata.get("usage"),
-                        "totalCostUsd": msg.metadata.get("total_cost_usd"),
+                        "usage": usage_data,
+                        "totalCostUsd": cost,
                     },
                 })
 
@@ -539,17 +585,38 @@ async def create_thread_for_agent(
                 # Broadcast failure is non-critical - frontend will get data on next fetch
                 logger.debug(f"Failed to broadcast thread_created to {parent_id}: {e}")
 
-        asyncio.create_task(_broadcast_thread_created())
+        task = asyncio.create_task(_broadcast_thread_created())
+        task.add_done_callback(
+            lambda t: logger.error(f"broadcast_thread_created failed: {t.exception()}")
+            if t.exception() else None
+        )
 
     return thread
 
 
 async def broadcast_question_to_thread(thread_id: str, question_data: dict[str, Any]) -> None:
-    """Broadcast a question event to a thread's subscribers."""
+    """Broadcast a question event to a thread's subscribers.
+
+    Also bubbles up the question to the parent thread as a child_question event,
+    so the parent UI can display questions from sub-threads.
+    """
     await broadcast_to_thread(thread_id, {
         "type": "question",
         "data": question_data,
     })
+
+    # Bubble up to parent thread if this is a sub-thread
+    thread = get_thread(thread_id)
+    if thread and thread.get("parentId"):
+        parent_id = thread["parentId"]
+        await broadcast_to_thread(parent_id, {
+            "type": "child_question",
+            "data": {
+                "childThreadId": thread_id,
+                "childTitle": thread.get("title", "Unknown"),
+                "questions": question_data.get("questions", []),
+            },
+        })
 
 
 async def broadcast_plan_approval_to_thread(thread_id: str, plan_data: dict[str, Any]) -> None:
@@ -643,7 +710,11 @@ async def notify_parent_of_subthread_completion(
 
     # Only trigger parent thread agent if auto-react is enabled
     if parent_thread and parent_thread.get("autoReact", True):
-        asyncio.create_task(run_parent_thread_notification(parent_id, notification_content))
+        task = asyncio.create_task(run_parent_thread_notification(parent_id, notification_content))
+        task.add_done_callback(
+            lambda t: logger.error(f"Parent notification task failed for {parent_id}: {t.exception()}")
+            if t.exception() else None
+        )
     else:
         logger.info(f"Skipping auto-react for parent thread {parent_id} (disabled)")
 
@@ -677,9 +748,10 @@ async def run_parent_thread_notification(thread_id: str, notification_content: s
         # Use shared message processor
         processor = MessageStreamProcessor(thread_id)
 
-        async with asyncio.timeout(300):
-            async for msg in run_agent(thread, notification_content):
-                await processor.process_message(msg)
+        async with _agent_semaphore:
+            async with asyncio.timeout(300):
+                async for msg in run_agent(thread, notification_content):
+                    await processor.process_message(msg)
 
         await processor.finalize()
 
@@ -751,9 +823,10 @@ async def run_thread_for_agent(thread_id: str, message: str, skip_add_message: b
         # Use shared message processor
         processor = MessageStreamProcessor(thread_id)
 
-        async with asyncio.timeout(300):  # 5 minute timeout
-            async for msg in run_agent(thread, message):
-                await processor.process_message(msg)
+        async with _agent_semaphore:
+            async with asyncio.timeout(300):  # 5 minute timeout
+                async for msg in run_agent(thread, message):
+                    await processor.process_message(msg)
 
         await processor.finalize()
 
@@ -808,7 +881,19 @@ async def broadcast_subagent_stop_to_thread(thread_id: str, event_data: dict[str
 
     This is called when a background Task completes, allowing the frontend
     to show the user that a background task has finished.
+    Also updates the ephemeral thread status if one exists.
     """
+    # Update ephemeral thread status if it exists
+    tool_use_id = event_data.get("toolUseId")
+    if tool_use_id:
+        try:
+            ephemeral = get_thread(tool_use_id)
+            if ephemeral and ephemeral.get("isEphemeral"):
+                new_status = "done" if not event_data.get("error") else "needs_attention"
+                update_thread_status(tool_use_id, new_status)
+        except Exception as e:
+            logger.debug(f"Could not update ephemeral thread {tool_use_id}: {e}")
+
     await broadcast_to_thread(thread_id, {
         "type": "subagent_stop",
         "data": event_data,
@@ -880,7 +965,11 @@ async def send_to_thread_for_agent(
         return None
 
     # Fire-and-forget: start processing the message in background
-    asyncio.create_task(run_thread_for_agent(target_thread_id, message))
+    task = asyncio.create_task(run_thread_for_agent(target_thread_id, message))
+    task.add_done_callback(
+        lambda t: logger.error(f"SendToThread background task failed for {target_thread_id}: {t.exception()}")
+        if t.exception() else None
+    )
 
     return {
         "id": target_thread["id"],
@@ -1820,15 +1909,16 @@ async def send_message(thread_id: str, request: SendMessageRequest) -> dict[str,
         # Use shared message processor
         processor = MessageStreamProcessor(thread_id)
 
-        async with asyncio.timeout(300):  # 5 minute timeout
-            async for msg in run_agent(
-                thread,
-                message_content,
-                images=images,
-                allow_nested_subthreads=request.allow_nested_subthreads,
-                max_thread_depth=request.max_thread_depth,
-            ):
-                await processor.process_message(msg)
+        async with _agent_semaphore:
+            async with asyncio.timeout(300):  # 5 minute timeout
+                async for msg in run_agent(
+                    thread,
+                    message_content,
+                    images=images,
+                    allow_nested_subthreads=request.allow_nested_subthreads,
+                    max_thread_depth=request.max_thread_depth,
+                ):
+                    await processor.process_message(msg)
 
         await processor.finalize()
 
@@ -2109,6 +2199,19 @@ async def get_thread_tokens(thread_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Thread not found")
 
     return await asyncio.to_thread(estimate_thread_tokens, thread_id)
+
+
+@app.get("/api/threads/{thread_id}/usage")
+async def get_thread_usage(thread_id: str) -> dict[str, Any]:
+    """Get actual token usage for a thread (including child thread aggregation).
+
+    Returns persisted input/output tokens and cost, plus aggregated child usage.
+    """
+    thread = get_thread(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    return await asyncio.to_thread(get_thread_usage_with_children, thread_id)
 
 
 @app.post("/api/threads/{thread_id}/answer")

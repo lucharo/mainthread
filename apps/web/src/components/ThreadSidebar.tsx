@@ -232,7 +232,7 @@ export function ThreadSidebar() {
 
   return (
     <aside className="w-full h-full border-l border-border bg-muted/30 flex flex-col">
-      <div className="p-4 border-b border-border flex items-center justify-between flex-shrink-0">
+      <div className="px-4 py-4 border-b border-border flex items-center justify-between flex-shrink-0">
         <h2 className="font-semibold">Threads</h2>
         <button
           onClick={openCreateModal}
@@ -251,7 +251,7 @@ export function ThreadSidebar() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-2">
+      <div className="flex-1 overflow-y-auto px-4 py-2">
         {threads.length === 0 && (
           <p className="text-sm text-muted-foreground p-2">No threads yet</p>
         )}
@@ -306,7 +306,7 @@ export function ThreadSidebar() {
       <SystemStats />
 
       {/* Footer with toggle and reset */}
-      <div className="p-3 border-t border-border space-y-2 flex-shrink-0">
+      <div className="px-4 py-3 border-t border-border space-y-2 flex-shrink-0">
         <div className="flex items-center justify-between">
           <Toggle
             enabled={showArchived}

@@ -10,6 +10,7 @@ import {
   type PendingPlanApproval,
   useThreadStore,
 } from '../store/threadStore';
+import type { ChildPendingQuestion } from '../store/types';
 import { useSettingsStore } from '../store/settingsStore';
 import { CreateSubThreadModal } from './CreateSubThreadModal';
 import { CreateThreadModal } from './CreateThreadModal';
@@ -23,6 +24,7 @@ import { MessageBubble, StreamingMessage, StreamingToolBlock } from './MessageBu
 import { PlanApprovalBlock } from './PlanApprovalBlock';
 import { ProcessingBlock } from './ProcessingBlock';
 import { ToolHistoryBlock } from './ToolHistoryBlock';
+import { ThreadMinimap } from './ThreadMinimap';
 
 // Type for grouped streaming blocks
 type StreamingBlockGroup =
@@ -181,11 +183,17 @@ export function ChatPanel() {
   const allowNestedSubthreads = useSettingsStore((state) => state.experimentalAllowNestedSubthreads);
   const maxThreadDepth = useSettingsStore((state) => state.experimentalMaxThreadDepth);
 
+  // Safe read for childPendingQuestions (may not exist in store yet)
+  const childPendingQuestions = useThreadStore(
+    (state) => (state as unknown as Record<string, unknown>).childPendingQuestions as Record<string, ChildPendingQuestion[]> | undefined
+  );
+
   const [isCreatingThread, setIsCreatingThread] = useState(false);
   const [showSpawnModal, setShowSpawnModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [showProcessingIndicator, setShowProcessingIndicator] = useState(false);
+  const [showMinimap, setShowMinimap] = useState(false);
   const processingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -233,6 +241,15 @@ export function ChatPanel() {
     () => (activeThreadId ? expandedStreamingBlockId[activeThreadId] || null : null),
     [activeThreadId, expandedStreamingBlockId]
   );
+
+  // Child pending questions for the active thread
+  const activeChildQuestions = useMemo(() => {
+    if (!activeThreadId || !childPendingQuestions) return [];
+    return childPendingQuestions[activeThreadId] || [];
+  }, [activeThreadId, childPendingQuestions]);
+
+  // Check if thread is read-only or ephemeral
+  const isReadOnly = activeThread?.isReadOnly === true || activeThread?.isEphemeral === true;
 
   // Minimum display time for ProcessingBlock (400ms) to ensure visibility
   const shouldShowProcessing = activeThread?.status === 'pending' && currentStreamingBlocks.length === 0;
@@ -490,14 +507,77 @@ export function ChatPanel() {
 
       {/* Thread header */}
       {activeThread && (
-        <ThreadHeader
-          thread={activeThread}
-          parentThread={parentThread || undefined}
-          tokenInfo={tokenInfo}
-          onNavigateToParent={() => parentThread && setActiveThread(parentThread.id)}
-          onClearThread={handleClearThread}
-          onArchiveThread={handleArchiveThread}
-        />
+        <div className="relative">
+          <ThreadHeader
+            thread={activeThread}
+            parentThread={parentThread || undefined}
+            tokenInfo={tokenInfo}
+            onNavigateToParent={() => parentThread && setActiveThread(parentThread.id)}
+            onClearThread={handleClearThread}
+            onArchiveThread={handleArchiveThread}
+          />
+          {/* Read-only badge */}
+          {isReadOnly && (
+            <span className="absolute top-2 right-32 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-500/10 text-gray-500 text-xs border border-gray-500/20">
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              Read-only
+            </span>
+          )}
+          {/* Minimap toggle */}
+          <button
+            onClick={() => setShowMinimap((v) => !v)}
+            className={`absolute top-2 right-2 p-1 rounded border text-xs transition-colors ${
+              showMinimap
+                ? 'bg-primary/10 border-primary/30 text-primary'
+                : 'bg-background border-border text-muted-foreground hover:text-foreground hover:bg-muted'
+            }`}
+            title={showMinimap ? 'Hide thread map' : 'Show thread map'}
+            aria-label="Toggle thread minimap"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h8m-8 6h16" />
+              <circle cx="18" cy="12" r="2" strokeWidth={2} />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {/* Thread minimap panel */}
+      {showMinimap && (
+        <div className="border-b border-border bg-muted/20 flex-shrink-0">
+          <ThreadMinimap
+            threads={threads}
+            activeThreadId={activeThreadId}
+            onNavigate={setActiveThread}
+          />
+        </div>
+      )}
+
+      {/* Child pending question banner */}
+      {activeChildQuestions.length > 0 && (
+        <div className="flex-shrink-0">
+          {activeChildQuestions.map((cpq) => (
+            <div
+              key={cpq.childThreadId}
+              className="bg-amber-500/10 border-b border-amber-500/30 px-4 py-2 flex items-center gap-3"
+            >
+              <svg className="w-4 h-4 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="text-sm text-amber-700 dark:text-amber-400 flex-1">
+                Sub-thread &lsquo;{cpq.childTitle}&rsquo; needs your input
+              </span>
+              <button
+                onClick={() => setActiveThread(cpq.childThreadId)}
+                className="text-xs px-2 py-1 rounded bg-amber-500/20 text-amber-700 dark:text-amber-400 hover:bg-amber-500/30 transition-colors border border-amber-500/30"
+              >
+                Go to thread
+              </button>
+            </div>
+          ))}
+        </div>
       )}
 
       {/* Messages area */}
@@ -625,7 +705,7 @@ export function ChatPanel() {
       </div>
 
       {/* Input area */}
-      {activeThread && (
+      {activeThread && !isReadOnly && (
         <MessageInput
           thread={activeThread}
           disabled={isCreatingThread}

@@ -10,6 +10,7 @@ import { ToolHistoryBlock } from './ToolHistoryBlock';
 import { StreamingCursor } from './StreamingCursor';
 import { AssistantBlock } from './AssistantBlock';
 import { formatToolName, truncateContent } from '../utils/format';
+import { formatExpandedToolInput } from '../utils/formatToolInput';
 
 // Format tool input for human-readable display
 function formatToolSummary(
@@ -94,19 +95,35 @@ function ToolBlock({
   isComplete,
   isCollapsed,
   isError,
+  startCollapsed,
+  onNavigateToThread,
 }: {
   name?: string;
   input?: Record<string, unknown>;
   isComplete?: boolean;
   isCollapsed?: boolean;
   isError?: boolean;
+  /** If true, start collapsed even if isComplete (for persisted blocks) */
+  startCollapsed?: boolean;
+  onNavigateToThread?: (threadId: string) => void;
 }) {
   // Check if there's content worth expanding (beyond the summary)
   const canExpand = hasExpandableContent(name, input);
   // Local state for manual toggle, but starts from FIFO state
-  const [isExpanded, setIsExpanded] = useState(!isCollapsed && canExpand);
+  const [isExpanded, setIsExpanded] = useState(() => {
+    if (startCollapsed) return false;
+    return !isCollapsed && canExpand;
+  });
   const summary = formatToolSummary(name, input);
   const wasIncomplete = useRef(!isComplete);
+
+  // Thread navigation for SpawnThread tools
+  const threads = useThreadStore((state) => state.threads);
+  const isSpawnThread = name === 'SpawnThread';
+  const spawnedThreadTitle = isSpawnThread && input?.title ? String(input.title) : null;
+  const spawnedThreadId = spawnedThreadTitle
+    ? threads.find((t) => t.title === spawnedThreadTitle)?.id || null
+    : null;
 
   // Sync with FIFO collapse state (external trigger from queue management)
   useEffect(() => {
@@ -130,73 +147,98 @@ function ToolBlock({
     }
   }, [isComplete, isExpanded]);
 
+  // Formatted expanded content
+  const formatted = useMemo(() => {
+    if (!name || !input) return null;
+    return formatExpandedToolInput(name, input);
+  }, [name, input]);
+
   return (
     <AssistantBlock>
       <div className="my-2">
-        <button
-          onClick={() => canExpand && setIsExpanded(!isExpanded)}
-          className={`flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground rounded-lg transition-colors w-full text-left ${
-            isError
-              ? 'bg-red-500/10 hover:bg-red-500/20 border border-red-500/50'
-              : 'bg-muted/30 hover:bg-muted/50'
-          } ${!canExpand ? 'cursor-default' : ''}`}
-        >
-          {isError ? (
-            <svg
-              className="w-4 h-4 text-red-500 flex-shrink-0"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          ) : isComplete ? (
-            <svg
-              className="w-4 h-4 text-green-500 flex-shrink-0"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-          ) : (
-            <svg
-              className="w-4 h-4 animate-spin flex-shrink-0"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => canExpand && setIsExpanded(!isExpanded)}
+            className={`flex-1 flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground rounded-lg transition-colors text-left ${
+              isError
+                ? 'bg-red-500/10 hover:bg-red-500/20 border border-red-500/50'
+                : 'bg-muted/30 hover:bg-muted/50'
+            } ${!canExpand ? 'cursor-default' : ''}`}
+          >
+            {isError ? (
+              <svg
+                className="w-4 h-4 text-red-500 flex-shrink-0"
+                fill="none"
                 stroke="currentColor"
-                strokeWidth="4"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-              />
-            </svg>
-          )}
-          <span className={`font-medium ${isError ? 'text-red-600' : ''}`}>{formatToolName(name)}</span>
-          {summary && <span className="text-xs opacity-70 truncate flex-1 font-mono">{summary}</span>}
-          {canExpand && (
-            <svg
-              className={`w-4 h-4 transition-transform flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            ) : isComplete ? (
+              <svg
+                className="w-4 h-4 text-green-500 flex-shrink-0"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <svg
+                className="w-4 h-4 animate-spin flex-shrink-0"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                />
+              </svg>
+            )}
+            <span className={`font-medium ${isError ? 'text-red-600' : ''}`}>{formatToolName(name)}</span>
+            {summary && <span className="text-xs opacity-70 truncate flex-1 font-mono">{summary}</span>}
+            {canExpand && (
+              <svg
+                className={`w-4 h-4 transition-transform flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            )}
+          </button>
+          {/* Jump to thread button for SpawnThread */}
+          {isSpawnThread && spawnedThreadId && onNavigateToThread && (
+            <button
+              onClick={() => onNavigateToThread(spawnedThreadId)}
+              className="px-2 py-1.5 text-xs text-primary hover:bg-primary/10 rounded transition-colors flex-shrink-0"
+              title="Jump to thread"
             >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
           )}
-        </button>
-        {isExpanded && input && hasExpandableContent(name, input) && (
-          <div className="mt-1 ml-6 p-2 bg-muted/20 rounded text-xs font-mono overflow-hidden max-w-full">
-            <pre className="whitespace-pre-wrap break-words">{JSON.stringify(input, null, 2)}</pre>
+        </div>
+        {isExpanded && input && hasExpandableContent(name, input) && formatted && (
+          <div className="mt-1 ml-6 p-2 bg-muted/20 rounded text-xs overflow-hidden max-w-full">
+            {formatted.summary && (
+              <div className="font-mono text-muted-foreground mb-1">{formatted.summary}</div>
+            )}
+            {formatted.details && (
+              <pre className="whitespace-pre-wrap break-words font-mono leading-relaxed">{formatted.details}</pre>
+            )}
           </div>
         )}
       </div>
@@ -240,7 +282,16 @@ function groupConsecutiveBlocks(blocks: StreamingBlock[]): BlockGroup[] {
 }
 
 // Render a single persisted block
-function PersistedBlockRenderer({ block }: { block: StreamingBlock }) {
+function PersistedBlockRenderer({
+  block,
+  isLastToolBlock,
+  onNavigateToThread,
+}: {
+  block: StreamingBlock;
+  /** Whether this is the last tool_use block in the message */
+  isLastToolBlock?: boolean;
+  onNavigateToThread?: (threadId: string) => void;
+}) {
   switch (block.type) {
     case 'text':
       return block.content ? (
@@ -260,6 +311,8 @@ function PersistedBlockRenderer({ block }: { block: StreamingBlock }) {
           name={block.name}
           input={block.input as Record<string, unknown>}
           isComplete={block.isComplete ?? true}
+          startCollapsed={!isLastToolBlock}
+          onNavigateToThread={onNavigateToThread}
         />
       );
     default:
@@ -268,9 +321,24 @@ function PersistedBlockRenderer({ block }: { block: StreamingBlock }) {
 }
 
 // Render grouped blocks
-function GroupedBlockRenderer({ group }: { group: BlockGroup }) {
+function GroupedBlockRenderer({
+  group,
+  isLastToolGroup,
+  onNavigateToThread,
+}: {
+  group: BlockGroup;
+  isLastToolGroup?: boolean;
+  onNavigateToThread?: (threadId: string) => void;
+}) {
   if (group.type === 'single') {
-    return <PersistedBlockRenderer block={group.block} />;
+    const isLastTool = isLastToolGroup && group.block.type === 'tool_use';
+    return (
+      <PersistedBlockRenderer
+        block={group.block}
+        isLastToolBlock={isLastTool}
+        onNavigateToThread={onNavigateToThread}
+      />
+    );
   }
 
   const tools = group.blocks.map((block) => ({
@@ -280,16 +348,18 @@ function GroupedBlockRenderer({ group }: { group: BlockGroup }) {
     isComplete: block.isComplete ?? true,
   }));
 
-  return <ToolHistoryBlock tools={tools} />;
+  return <ToolHistoryBlock tools={tools} onNavigateToThread={onNavigateToThread} />;
 }
 
 interface MessageBubbleProps {
   message: Message;
   /** Skip rendering content_blocks (used when streaming blocks are active to avoid duplicates) */
   skipContentBlocks?: boolean;
+  /** Callback to navigate to a thread by ID (for SpawnThread tool blocks) */
+  onNavigateToThread?: (threadId: string) => void;
 }
 
-export const MessageBubble = memo(function MessageBubble({ message, skipContentBlocks = false }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({ message, skipContentBlocks = false, onNavigateToThread }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
 
@@ -324,10 +394,24 @@ export const MessageBubble = memo(function MessageBubble({ message, skipContentB
   // Render content blocks if available (skip if streaming is active to avoid duplicates)
   if (!isUser && contentBlocks && contentBlocks.length > 0 && !skipContentBlocks) {
     const groupedBlocks = groupConsecutiveBlocks(contentBlocks);
+    // Find the last group that contains tool_use blocks
+    let lastToolGroupIndex = -1;
+    for (let i = groupedBlocks.length - 1; i >= 0; i--) {
+      const g = groupedBlocks[i];
+      if (g.type === 'tools' || (g.type === 'single' && g.block.type === 'tool_use')) {
+        lastToolGroupIndex = i;
+        break;
+      }
+    }
     return (
       <div className="animate-fade-in space-y-2">
         {groupedBlocks.map((group, index) => (
-          <GroupedBlockRenderer key={`${message.id}-group-${index}`} group={group} />
+          <GroupedBlockRenderer
+            key={`${message.id}-group-${index}`}
+            group={group}
+            isLastToolGroup={index === lastToolGroupIndex}
+            onNavigateToThread={onNavigateToThread}
+          />
         ))}
         <p className="text-xs opacity-70 px-4">
           {new Date(message.timestamp).toLocaleTimeString()}

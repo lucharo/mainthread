@@ -52,7 +52,7 @@ export function MessageInput({
   onError,
 }: MessageInputProps) {
   const [input, setInput] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Image attachment state
@@ -203,10 +203,19 @@ export function MessageInput({
     return () => clearTimeout(debounce);
   }, [showFilePicker, fileQuery, thread.id, thread.workDir]);
 
+  // Auto-resize textarea
+  const autoResize = (el: HTMLTextAreaElement) => {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+  };
+
   // Handle @ trigger in input
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     setInput(value);
+
+    // Auto-resize
+    autoResize(e.target);
 
     // Check for @ trigger
     const cursorPos = e.target.selectionStart || 0;
@@ -288,10 +297,10 @@ export function MessageInput({
     }
   }, [thread.permissionMode, onPermissionModeChange, onError]);
 
-  // Global keyboard shortcut for Shift+Enter to cycle permission mode
+  // Global keyboard shortcut for Ctrl+Shift+Enter to cycle permission mode
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Enter' && e.shiftKey && document.activeElement === inputRef.current) {
+      if (e.key === 'Enter' && e.shiftKey && e.ctrlKey && document.activeElement === inputRef.current) {
         e.preventDefault();
         e.stopPropagation();
         cyclePermissionMode();
@@ -319,8 +328,7 @@ export function MessageInput({
     };
   }, [thread.status, onStopThread]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const doSend = useCallback(async () => {
     if (!input.trim() && images.length === 0) return;
 
     const messageContent = input;
@@ -333,22 +341,43 @@ export function MessageInput({
     setFileRefs([]);
     setShowFilePicker(false);
 
+    // Reset textarea height
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+    }
+
     try {
       await onSendMessage(messageContent, messageImages, messageFileRefs);
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Failed to send message');
     }
+  }, [input, images, fileRefs, onSendMessage, onError]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    doSend();
   };
 
   const handleInputKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === 'Enter' && e.shiftKey) {
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // Ctrl+Shift+Enter: cycle permission mode
+      if (e.key === 'Enter' && e.shiftKey && e.ctrlKey) {
         e.preventDefault();
         e.stopPropagation();
         cyclePermissionMode();
+        return;
+      }
+      // Shift+Enter: insert newline (default textarea behavior, no action needed)
+      if (e.key === 'Enter' && e.shiftKey) {
+        return;
+      }
+      // Enter without Shift: send message
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        doSend();
       }
     },
-    [cyclePermissionMode]
+    [cyclePermissionMode, doSend]
   );
 
   const handleModelChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -513,21 +542,22 @@ export function MessageInput({
         </button>
 
         <div className="flex-1 relative">
-          <input
+          <textarea
             ref={inputRef}
-            type="text"
             value={input}
             onChange={handleInputChange}
             onKeyDown={(e) => {
-              handleFilePickerKeyDown(e);
+              handleFilePickerKeyDown(e as unknown as React.KeyboardEvent);
               if (!showFilePicker) handleInputKeyDown(e);
             }}
             onPaste={handlePaste}
             placeholder="Type a message... (@ for files)"
             disabled={disabled}
             aria-label="Message input"
+            rows={1}
             className="w-full px-4 py-2 rounded-lg border border-border bg-background
-                       focus:outline-none focus:ring-2 focus:ring-primary"
+                       focus:outline-none focus:ring-2 focus:ring-primary resize-none overflow-y-auto"
+            style={{ maxHeight: '200px' }}
           />
 
           {/* File picker dropdown */}
