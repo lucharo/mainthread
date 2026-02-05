@@ -1072,7 +1072,7 @@ register_send_to_thread_callback(send_to_thread_for_agent)
 
 # Pydantic models with validation
 ThreadStatus = Literal["active", "pending", "needs_attention", "done", "new_message"]
-ModelType = Literal["claude-sonnet-4-5", "claude-opus-4-5", "claude-haiku-4-5"]
+ModelType = Literal["claude-sonnet-4-5", "claude-opus-4-5", "claude-opus-4-6", "claude-haiku-4-5"]
 
 
 PermissionMode = Literal["default", "acceptEdits", "bypassPermissions", "plan"]

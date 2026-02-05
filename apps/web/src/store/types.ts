@@ -18,7 +18,7 @@ export interface Message {
   timestamp: string;
 }
 
-export type ModelType = 'claude-sonnet-4-5' | 'claude-opus-4-5' | 'claude-haiku-4-5';
+export type ModelType = 'claude-sonnet-4-5' | 'claude-opus-4-5' | 'claude-opus-4-6' | 'claude-haiku-4-5';
 export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
 
 export interface Thread {

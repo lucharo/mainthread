@@ -34,7 +34,7 @@ def create_spawn_thread_tool(
         "(status='needs_attention'). You do NOT need to poll or repeatedly check sub-thread status - just continue "
         "other work and you will be notified when the sub-thread finishes.\n\n"
         "Optional configuration (inherits from parent if not specified):\n"
-        "- model: 'claude-sonnet-4-5', 'claude-opus-4-5', or 'claude-haiku-4-5'\n"
+        "- model: 'claude-sonnet-4-5', 'claude-opus-4-5', 'claude-opus-4-6', or 'claude-haiku-4-5'\n"
         "- permission_mode: 'default', 'acceptEdits', 'bypassPermissions', or 'plan'\n"
         "- extended_thinking: true/false for extended thinking mode",
         {

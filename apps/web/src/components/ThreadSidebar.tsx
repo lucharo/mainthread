@@ -61,6 +61,7 @@ function PermissionModeBadge({ mode }: { mode?: string }) {
 
 // Muted badge colors - let the status dot be the dominant color signal
 const MODEL_BADGES: Record<ModelType, { short: string; full: string; color: string }> = {
+  'claude-opus-4-6': { short: 'Opus 4.6', full: 'Opus 4.6', color: 'bg-muted text-muted-foreground' },
   'claude-sonnet-4-5': { short: 'Sonnet', full: 'Sonnet 4.5', color: 'bg-muted text-muted-foreground' },
   'claude-opus-4-5': { short: 'Opus', full: 'Opus 4.5', color: 'bg-muted text-muted-foreground' },
   'claude-haiku-4-5': { short: 'Haiku', full: 'Haiku 4.5', color: 'bg-muted text-muted-foreground' },

@@ -3,7 +3,8 @@ import { useSettingsStore } from '../store/settingsStore';
 import type { ModelType, PermissionMode } from '../store/types';
 
 const MODEL_OPTIONS: { value: ModelType; label: string; desc: string }[] = [
-  { value: 'claude-opus-4-5', label: 'Opus 4.5', desc: 'Most intelligent' },
+  { value: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Most intelligent' },
+  { value: 'claude-opus-4-5', label: 'Opus 4.5', desc: 'Highly capable' },
   { value: 'claude-sonnet-4-5', label: 'Sonnet 4.5', desc: 'Fast & capable' },
   { value: 'claude-haiku-4-5', label: 'Haiku 4.5', desc: 'Quick & light' },
 ];

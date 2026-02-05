@@ -3,6 +3,7 @@ import type { ModelType, PermissionMode, Thread } from '../store/threadStore';
 import { Toggle } from './Toggle';
 
 const MODEL_OPTIONS: { value: ModelType; label: string }[] = [
+  { value: 'claude-opus-4-6', label: 'Opus 4.6' },
   { value: 'claude-opus-4-5', label: 'Opus 4.5' },
   { value: 'claude-sonnet-4-5', label: 'Sonnet 4.5' },
   { value: 'claude-haiku-4-5', label: 'Haiku 4.5' },

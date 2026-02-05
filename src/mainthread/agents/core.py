@@ -162,7 +162,7 @@ When to use each tool:
   user visibility is important.
 
   **SpawnThread optional parameters** (if not specified, inherits from parent):
-  - `model`: 'claude-sonnet-4-5', 'claude-opus-4-5', or 'claude-haiku-4-5'
+  - `model`: 'claude-sonnet-4-5', 'claude-opus-4-5', 'claude-opus-4-6', or 'claude-haiku-4-5'
   - `permission_mode`: 'default', 'acceptEdits', 'bypassPermissions', or 'plan'
   - `extended_thinking`: true/false
 

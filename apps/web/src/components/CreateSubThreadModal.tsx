@@ -2,7 +2,8 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { ModelType, PermissionMode } from '../store/threadStore';
 
 const MODEL_OPTIONS: { value: ModelType; label: string; desc: string; color: string }[] = [
-  { value: 'claude-opus-4-5', label: 'Opus', desc: 'Most powerful', color: 'bg-amber-500' },
+  { value: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Most powerful', color: 'bg-red-500' },
+  { value: 'claude-opus-4-5', label: 'Opus 4.5', desc: 'Highly capable', color: 'bg-amber-500' },
   { value: 'claude-sonnet-4-5', label: 'Sonnet', desc: 'Fast & capable', color: 'bg-violet-500' },
   { value: 'claude-haiku-4-5', label: 'Haiku', desc: 'Quick responses', color: 'bg-emerald-500' },
 ];
