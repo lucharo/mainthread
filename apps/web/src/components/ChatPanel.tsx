@@ -602,12 +602,20 @@ export function ChatPanel() {
         )}
 
         {/* Render messages and notifications chronologically */}
-        {timelineItems.map((item) => {
-          // Skip content_blocks for the currently streaming message to avoid duplicates
-          // A message with '[streaming...]' content and active streaming blocks is currently streaming
+        {timelineItems.map((item, index) => {
+          // Skip content_blocks for the currently streaming message to avoid duplicates.
+          // This covers both mid-stream ('[streaming...]') and the brief window after the
+          // complete event fires when streaming blocks are still visible (600ms clear delay).
+          const isLastAssistantMsg = item.type === 'message' &&
+            item.data.role === 'assistant' &&
+            index === timelineItems.length - 1;
+
+          const hasActiveStreamingBlocks = currentStreamingBlocks.length > 0;
+
           const shouldSkipContentBlocks = item.type === 'message' &&
             item.data.role === 'assistant' &&
-            item.data.content === '[streaming...]';
+            (item.data.content === '[streaming...]' ||
+             (isLastAssistantMsg && hasActiveStreamingBlocks));
 
           return item.type === 'message' ? (
             <MessageBubble key={item.data.id} message={item.data} skipContentBlocks={shouldSkipContentBlocks} />

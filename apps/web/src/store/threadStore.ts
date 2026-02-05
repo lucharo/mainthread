@@ -838,6 +838,15 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     eventSource.addEventListener('stopped', (event) => {
       updateLastEventId(event);
       console.log('[SSE] stopped received for thread', threadId);
+      // Mark all remaining incomplete tool_use blocks as complete before clearing.
+      // This prevents spinner artifacts when a thread is stopped mid-execution.
+      const currentBlocks = get().streamingBlocks[threadId] || [];
+      currentBlocks.forEach((block) => {
+        if (block.type === 'tool_use' && block.id && !block.isComplete) {
+          console.log('[SSE] stopped: force-completing incomplete tool block:', block.id);
+          get().markBlockComplete(threadId, block.id);
+        }
+      });
       // Clear streaming blocks and update status
       get().clearStreamingBlocks(threadId);
       get().updateThreadStatus(threadId, 'active');
@@ -1111,6 +1120,17 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       updateLastEventId(event);
       const data = safeJsonParse<{ userMessage?: Message; assistantMessage?: Message; status?: ThreadStatus }>(event.data, {});
       console.log('[SSE] complete received');
+
+      // Mark all remaining incomplete tool_use blocks as complete immediately.
+      // This prevents spinner artifacts when tool_result SSE events were missed
+      // or arrived out of order (e.g., SpawnThread tool_result race condition).
+      const currentBlocks = get().streamingBlocks[threadId] || [];
+      currentBlocks.forEach((block) => {
+        if (block.type === 'tool_use' && block.id && !block.isComplete) {
+          console.log('[SSE] complete: force-completing incomplete tool block:', block.id);
+          get().markBlockComplete(threadId, block.id);
+        }
+      });
 
       // Delay BOTH clearing streaming blocks AND updating messages so they happen
       // at the same time. This prevents a ~600ms window where both streaming blocks
