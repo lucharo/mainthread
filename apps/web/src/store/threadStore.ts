@@ -334,32 +334,22 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
 
       const data = await res.json();
 
-      // Add messages from HTTP response, but avoid duplicates (SSE may have already added them)
-      set((state) => {
-        const thread = state.threads.find((t) => t.id === threadId);
-        if (!thread) return state;
-
-        // Filter out temp message and collect existing message IDs
-        const existingIds = new Set(thread.messages.map((m) => m.id));
-        const filteredMessages = thread.messages.filter((m) => m.id !== tempId);
-
-        // Only add messages that don't already exist
-        const newMessages = [...filteredMessages];
-        if (data.userMessage && !existingIds.has(data.userMessage.id)) {
-          newMessages.push(data.userMessage);
-        }
-        if (data.assistantMessage && !existingIds.has(data.assistantMessage.id)) {
-          newMessages.push(data.assistantMessage);
-        }
-
-        return {
+      // Replace temp user message ID with real one from backend
+      // (The actual assistant message arrives via SSE 'complete' event)
+      if (data.userMessageId) {
+        set((state) => ({
           threads: state.threads.map((t) =>
             t.id === threadId
-              ? { ...t, messages: newMessages, status: 'active' as ThreadStatus }
+              ? {
+                  ...t,
+                  messages: t.messages.map((m) =>
+                    m.id === tempId ? { ...m, id: data.userMessageId } : m
+                  ),
+                }
               : t,
           ),
-        };
-      });
+        }));
+      }
     } catch (err) {
       // Handle abort/timeout specifically
       if (err instanceof DOMException && err.name === 'AbortError') {
@@ -771,14 +761,8 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       updateLastEventId(event);
       const data = safeJsonParse<{ message?: Message; status?: ThreadStatus }>(event.data, {});
       if (data.message) {
-        // IMPORTANT: Clear streaming blocks BEFORE adding the message to prevent duplication
-        // The message contains the same content as streaming blocks (content_blocks),
-        // so we must clear streaming first to avoid showing both simultaneously
-        if (data.message.role === 'assistant') {
-          get().clearStreamingBlocks(threadId);
-        }
-
-        // Update thread with new message (with duplicate check)
+        // This event is used for notification messages (e.g., sub-thread completion).
+        // Assistant messages are delivered via the 'complete' event.
         set((state) => {
           const thread = state.threads.find((t) => t.id === threadId);
           const messageExists = thread?.messages.some((m) => m.id === data.message!.id);
@@ -949,7 +933,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
 
     eventSource.addEventListener('complete', (event) => {
       updateLastEventId(event);
-      const data = safeJsonParse<{ message?: Message; status?: ThreadStatus }>(event.data, {});
+      const data = safeJsonParse<{ userMessage?: Message; assistantMessage?: Message; status?: ThreadStatus }>(event.data, {});
       console.log('[SSE] complete received');
 
       // Delay clearing streaming blocks to allow collapse animation to complete
@@ -957,33 +941,41 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         get().clearStreamingBlocks(threadId);
       }, STREAMING_BLOCK_CLEAR_DELAY_MS);
 
-      // Add message from complete event if present and not already in thread
-      // This ensures messages are visible even if SSE arrives before HTTP response
-      if (data.message) {
-        set((state) => {
-          const thread = state.threads.find((t) => t.id === threadId);
-          // Only add if message isn't already in the thread
-          const messageExists = thread?.messages.some((m) => m.id === data.message!.id);
-          if (messageExists) {
-            // Just update status if message already exists
-            return {
-              threads: state.threads.map((t) =>
-                t.id === threadId ? { ...t, status: data.status || t.status } : t
-              ),
-            };
+      // Update thread with final messages and status (single source of truth)
+      set((state) => {
+        const thread = state.threads.find((t) => t.id === threadId);
+        if (!thread) return state;
+
+        let updatedMessages = [...thread.messages];
+
+        // Replace optimistic user message with persisted one (matching by content or temp ID)
+        if (data.userMessage) {
+          const tempIdx = updatedMessages.findIndex(
+            (m) => m.id.startsWith('temp-') && m.role === 'user'
+          );
+          if (tempIdx >= 0) {
+            updatedMessages[tempIdx] = data.userMessage;
+          } else if (!updatedMessages.some((m) => m.id === data.userMessage!.id)) {
+            updatedMessages.push(data.userMessage);
           }
-          // Add the message and update status
-          return {
-            threads: state.threads.map((t) =>
-              t.id === threadId
-                ? { ...t, messages: [...t.messages, data.message!], status: data.status || t.status }
-                : t
-            ),
-          };
-        });
-      } else if (data.status) {
-        get().updateThreadStatus(threadId, data.status);
-      }
+        }
+
+        // Add assistant message if not already present
+        if (data.assistantMessage) {
+          const assistantExists = updatedMessages.some((m) => m.id === data.assistantMessage!.id);
+          if (!assistantExists) {
+            updatedMessages.push(data.assistantMessage);
+          }
+        }
+
+        return {
+          threads: state.threads.map((t) =>
+            t.id === threadId
+              ? { ...t, messages: updatedMessages, status: data.status || t.status }
+              : t
+          ),
+        };
+      });
     });
 
     eventSource.addEventListener('error', (event: Event) => {

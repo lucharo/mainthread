@@ -289,20 +289,6 @@ class MessageStreamProcessor:
         """Process a single message from the agent stream."""
         logger.debug(f"[MSG] type={msg.type}, metadata={msg.metadata}")
         if msg.type == "text":
-            # SIMPLIFIED: Mark all pending tools complete when text starts
-            # (Claude is responding, so all tool calls must have finished)
-            for block in self.collected_blocks:
-                if block.get("type") == "tool_use" and not block.get("isComplete"):
-                    prev_id = block.get("id")
-                    block["isComplete"] = True
-                    logger.debug(f"[SSE] text: auto-completing tool {prev_id}")
-                    await broadcast_to_thread(self.thread_id, {
-                        "type": "tool_result",
-                        "data": {"tool_use_id": prev_id},
-                    })
-            # Clear pending since we just completed them all
-            self.pending_tool_ids.clear()
-
             self.collected_content.append(msg.content)
             if self.collected_blocks and self.collected_blocks[-1].get("type") == "text":
                 self.collected_blocks[-1]["content"] += msg.content
@@ -339,19 +325,6 @@ class MessageStreamProcessor:
             tool_id = tool_data.get("id")
             tool_name = tool_data.get("tool") or tool_data.get("name")
             logger.debug(f"[SSE] tool_use: name={tool_name}, id={tool_id}")
-
-            # SIMPLIFIED: Mark ALL previous tools as complete when a new tool starts
-            # (If Claude is calling tool #2, tool #1 must have finished)
-            for block in self.collected_blocks:
-                if block.get("type") == "tool_use" and not block.get("isComplete"):
-                    prev_id = block.get("id")
-                    block["isComplete"] = True
-                    logger.debug(f"[SSE] tool_use: auto-completing previous tool {prev_id}")
-                    # Broadcast completion for each previous tool
-                    await broadcast_to_thread(self.thread_id, {
-                        "type": "tool_result",
-                        "data": {"tool_use_id": prev_id},
-                    })
 
             if tool_id:
                 self.pending_tool_ids.append(tool_id)
@@ -721,7 +694,7 @@ async def run_parent_thread_notification(thread_id: str, notification_content: s
         # Notify subscribers of completion
         await broadcast_to_thread(thread_id, {
             "type": "complete",
-            "data": {"message": assistant_message, "status": processor.final_status},
+            "data": {"assistantMessage": assistant_message, "status": processor.final_status},
         })
 
     except TimeoutError:
@@ -798,7 +771,7 @@ async def run_thread_for_agent(thread_id: str, message: str, skip_add_message: b
         # Notify subscribers of completion
         await broadcast_to_thread(thread_id, {
             "type": "complete",
-            "data": {"message": assistant_message, "status": processor.final_status},
+            "data": {"assistantMessage": assistant_message, "status": processor.final_status},
         })
 
     except asyncio.CancelledError:
@@ -1852,13 +1825,17 @@ async def send_message(thread_id: str, request: SendMessageRequest) -> dict[str,
         # Handle sub-thread completion signals (auto-signal if agent didn't call SignalStatus)
         await notify_parent_of_subthread_completion(thread, thread_id, processor.final_status)
 
-        # Notify subscribers of completion
+        # Notify subscribers of completion (single source of truth for messages)
         await broadcast_to_thread(thread_id, {
             "type": "complete",
-            "data": {"message": assistant_message, "status": processor.final_status},
+            "data": {
+                "userMessage": user_message,
+                "assistantMessage": assistant_message,
+                "status": processor.final_status,
+            },
         })
 
-        return {"userMessage": user_message, "assistantMessage": assistant_message}
+        return {"status": "started", "threadId": thread_id, "userMessageId": user_message["id"]}
 
     except asyncio.CancelledError:
         logger.info(f"Task cancelled for thread {thread_id}")
