@@ -38,7 +38,6 @@ from claude_agent_sdk.types import (
     ToolUseBlock,
 )
 
-from mainthread.agents.client_cache import get_client_cache
 from mainthread.agents.registry import get_registry
 from mainthread.db import get_thread_depth
 from mainthread.agents.tools import (
@@ -590,23 +589,20 @@ async def run_agent(
 
     logger.debug(f"[AGENT] Starting agent for thread {thread_id}, model: {model}")
 
-    # Use client cache for reduced subprocess spawn latency
-    cache = get_client_cache()
-
-    def options_factory() -> ClaudeAgentOptions:
-        return ClaudeAgentOptions(
-            system_prompt=system_prompt,
-            allowed_tools=allowed_tools,
-            mcp_servers=mcp_servers if mcp_servers else None,
-            resume=thread.get("sessionId"),
-            cwd=thread.get("workDir") or os.getcwd(),
-            permission_mode=permission,
-            model=model,
-            can_use_tool=permission_handler,
-            settings=settings_json,
-            hooks={"SubagentStop": [subagent_stop_hook]},
-            include_partial_messages=True,
-        )
+    # Create client options directly (no caching - fresh client per request)
+    options = ClaudeAgentOptions(
+        system_prompt=system_prompt,
+        allowed_tools=allowed_tools,
+        mcp_servers=mcp_servers if mcp_servers else None,
+        resume=thread.get("sessionId"),
+        cwd=thread.get("workDir") or os.getcwd(),
+        permission_mode=permission,
+        model=model,
+        can_use_tool=permission_handler,
+        settings=settings_json,
+        hooks={"SubagentStop": [subagent_stop_hook]},
+        include_partial_messages=True,
+    )
 
     collected_content: list[str] = []
     collected_tool_calls: list[dict[str, Any]] = []
@@ -615,11 +611,7 @@ async def run_agent(
     received_streaming_thinking = False  # Track if thinking was streamed to avoid duplicates
 
     try:
-        async with cache.get_client(
-            thread_id=thread_id,
-            session_id=thread.get("sessionId"),
-            options_factory=options_factory,
-        ) as client:
+        async with ClaudeSDKClient(options=options) as client:
             # Build query content - text only or multimodal with images
             if images:
                 # Build multimodal content with images and text

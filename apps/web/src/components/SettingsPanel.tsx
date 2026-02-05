@@ -197,6 +197,24 @@ export function SettingsPanel() {
               )}
             </div>
           </section>
+
+          {/* Info Section */}
+          <section>
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+              Info
+            </h3>
+            <div className="bg-muted/30 rounded-xl p-4 border border-border/30">
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">Worktrees</div>
+                  <div className="text-xs text-muted-foreground">Sub-threads use isolated git worktrees</div>
+                </div>
+                <code className="text-xs text-muted-foreground bg-muted/50 px-2 py-1 rounded">
+                  .mainthread/worktrees/
+                </code>
+              </div>
+            </div>
+          </section>
         </div>
 
         {/* Footer */}

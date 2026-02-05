@@ -35,7 +35,6 @@ from mainthread.agents import (
     run_agent,
     set_pending_answer,
 )
-from mainthread.agents.client_cache import get_client_cache, reset_client_cache
 from mainthread.agents.task_registry import (
     clear_all_tasks,
     register_task,
@@ -126,11 +125,6 @@ async def lifespan(app: FastAPI):
     sse_event_store.clear()
     clear_all_tasks()
     reset_agent_state()
-    reset_client_cache()
-
-    # Initialize client cache
-    cache = get_client_cache()
-    await cache.startup()
 
     # Reset any stale pending threads to active (from previous server instance)
     try:
@@ -146,10 +140,6 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown: cleanup
     logger.info("MainThread API shutting down")
-
-    # Shutdown client cache first (close subprocess connections)
-    cache = get_client_cache()
-    await cache.shutdown()
 
     thread_subscribers.clear()
     _processing_notifications.clear()
@@ -480,6 +470,7 @@ async def create_thread_for_agent(
     permission_mode: str | None = None,
     extended_thinking: bool | None = None,
     initial_message: str | None = None,
+    worktree_dir: str = ".mainthread/worktrees/",
 ) -> dict[str, Any]:
     """Create a thread - async wrapper for the agent's SpawnThread tool.
 
@@ -490,6 +481,7 @@ async def create_thread_for_agent(
         initial_message: If provided, adds this as the first user message BEFORE
                         broadcasting thread_created. This prevents the race condition
                         where frontend receives thread with 0 messages.
+        worktree_dir: Relative path for git worktrees (default: .mainthread/worktrees/)
     """
     # Validate and normalize working directory
     validated_work_dir = validate_work_dir(work_dir)
@@ -517,7 +509,7 @@ async def create_thread_for_agent(
         # Generate a temporary thread_id for worktree naming (will be the actual thread_id)
         import uuid
         temp_thread_id = str(uuid.uuid4())
-        worktree_info = await create_git_worktree(validated_work_dir, temp_thread_id)
+        worktree_info = await create_git_worktree(validated_work_dir, temp_thread_id, worktree_dir)
 
         if worktree_info["success"]:
             # Use the worktree path as the working directory
@@ -1272,7 +1264,11 @@ def _get_directory_suggestions_sync() -> list[dict[str, Any]]:
     return suggestions
 
 
-def _create_git_worktree_sync(base_work_dir: str, thread_id: str) -> dict[str, Any]:
+def _create_git_worktree_sync(
+    base_work_dir: str,
+    thread_id: str,
+    worktree_subdir: str = ".mainthread/worktrees/",
+) -> dict[str, Any]:
     """Synchronous helper for git worktree creation (runs in thread pool).
 
     Creates a git worktree for isolated sub-thread development.
@@ -1280,6 +1276,7 @@ def _create_git_worktree_sync(base_work_dir: str, thread_id: str) -> dict[str, A
     Args:
         base_work_dir: The parent thread's working directory (must be a git repo)
         thread_id: The thread ID (used for branch and directory naming)
+        worktree_subdir: Relative path within base_work_dir for worktrees
 
     Returns:
         Dict with success, worktree_path, branch_name, and error (if any)
@@ -1301,10 +1298,29 @@ def _create_git_worktree_sync(base_work_dir: str, thread_id: str) -> dict[str, A
             result["error"] = "Not a git repository"
             return result
 
-        # 2. Create worktree directory path
+        # 2. Create worktree directory path with path traversal protection
         id_prefix = thread_id[:8]
-        worktree_dir = Path(base_work_dir) / ".mainthread" / "worktrees" / id_prefix
         branch_name = f"mainthread/{id_prefix}"
+
+        # Validate worktree_subdir to prevent path traversal
+        clean_subdir = worktree_subdir.strip().strip("/\\")
+        if not clean_subdir:
+            clean_subdir = ".mainthread/worktrees"
+
+        # Reject absolute paths
+        if os.path.isabs(clean_subdir):
+            result["error"] = "Worktree directory must be a relative path"
+            return result
+
+        # Resolve paths and verify target is within base_work_dir
+        base_path = Path(base_work_dir).resolve()
+        worktree_dir = (base_path / clean_subdir / id_prefix).resolve()
+
+        try:
+            worktree_dir.relative_to(base_path)
+        except ValueError:
+            result["error"] = "Worktree directory must be within the working directory"
+            return result
 
         # Ensure parent directory exists
         worktree_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -1324,7 +1340,7 @@ def _create_git_worktree_sync(base_work_dir: str, thread_id: str) -> dict[str, A
                 )
                 if not success:
                     branch_name = alt_branch
-                    worktree_dir = Path(base_work_dir) / ".mainthread" / "worktrees" / f"{id_prefix}-{i}"
+                    worktree_dir = (base_path / clean_subdir / f"{id_prefix}-{i}").resolve()
                     break
             else:
                 result["error"] = "Could not find available branch name"
@@ -1352,17 +1368,24 @@ def _create_git_worktree_sync(base_work_dir: str, thread_id: str) -> dict[str, A
         return result
 
 
-async def create_git_worktree(base_work_dir: str, thread_id: str) -> dict[str, Any]:
+async def create_git_worktree(
+    base_work_dir: str,
+    thread_id: str,
+    worktree_subdir: str = ".mainthread/worktrees/",
+) -> dict[str, Any]:
     """Create a git worktree for a thread (non-blocking).
 
     Args:
         base_work_dir: The parent thread's working directory
         thread_id: The thread ID for naming
+        worktree_subdir: Relative path within base_work_dir for worktrees
 
     Returns:
         Dict with success, worktree_path, branch_name, error
     """
-    return await asyncio.to_thread(_create_git_worktree_sync, base_work_dir, thread_id)
+    return await asyncio.to_thread(
+        _create_git_worktree_sync, base_work_dir, thread_id, worktree_subdir
+    )
 
 
 def _cleanup_git_worktree_sync(worktree_path: str, branch_name: str | None) -> bool:
@@ -1529,22 +1552,18 @@ def _collect_system_stats_sync() -> dict[str, Any]:
 
 @app.get("/api/stats")
 async def get_system_stats() -> dict[str, Any]:
-    """Get system resource usage and client cache stats.
+    """Get system resource usage stats.
 
-    Returns CPU/memory usage, Claude process count, and cache statistics.
+    Returns CPU/memory usage and Claude process count.
     Useful for monitoring system health during agent execution.
     """
     try:
         import psutil  # noqa: F401 - check if available
     except ImportError:
-        return {
-            "error": "psutil not installed",
-            "cache": get_client_cache().stats,
-        }
+        return {"error": "psutil not installed"}
 
     # Run process iteration in thread pool to avoid blocking event loop
     stats = await asyncio.to_thread(_collect_system_stats_sync)
-    stats["cache"] = get_client_cache().stats
     return stats
 
 

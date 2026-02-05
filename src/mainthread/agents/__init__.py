@@ -24,10 +24,6 @@ from mainthread.agents.core import (
     run_agent,
     run_agent_simple,
 )
-from mainthread.agents.client_cache import (
-    get_client_cache,
-    reset_client_cache,
-)
 from mainthread.agents.registry import (
     ServiceRegistry,
     get_registry,
@@ -119,9 +115,6 @@ __all__ = [
     "determine_status",
     "run_agent",
     "run_agent_simple",
-    # Client cache
-    "get_client_cache",
-    "reset_client_cache",
     # Registry
     "ServiceRegistry",
     "get_registry",
