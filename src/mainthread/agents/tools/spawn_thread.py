@@ -76,6 +76,8 @@ def create_spawn_thread_tool(
             }
 
         try:
+            initial_message = args.get("initial_message")
+
             new_thread = await registry.create_thread(
                 title=args["title"],
                 parent_id=parent_thread_id,
@@ -83,6 +85,7 @@ def create_spawn_thread_tool(
                 model=model,
                 permission_mode=permission_mode,
                 extended_thinking=extended_thinking,
+                initial_message=initial_message,  # Added BEFORE broadcast to fix race condition
             )
 
             # Build worktree status message
@@ -94,15 +97,16 @@ def create_spawn_thread_tool(
             elif worktree_info.get("error"):
                 worktree_msg = f" (Worktree creation skipped: {worktree_info['error']})"
 
-            initial_message = args.get("initial_message")
-            if initial_message and registry.run_thread:
-                # Fire-and-forget: start the sub-thread in background
-                # Delay allows frontend time to subscribe to SSE
-                async def delayed_run():
-                    await asyncio.sleep(0.5)
-                    await registry.run_thread(new_thread["id"], initial_message)
+            if initial_message:
+                if registry.run_thread:
+                    # Fire-and-forget: start the sub-thread in background
+                    # Delay allows frontend time to subscribe to SSE
+                    async def delayed_run():
+                        await asyncio.sleep(0.5)
+                        # Skip adding message since we already added it above
+                        await registry.run_thread(new_thread["id"], initial_message, skip_add_message=True)
 
-                asyncio.create_task(delayed_run())
+                    asyncio.create_task(delayed_run())
                 # Include thread_id in JSON format at end of text for server to parse
                 return {
                     "content": [

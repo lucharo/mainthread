@@ -479,11 +479,17 @@ async def create_thread_for_agent(
     model: str | None = None,
     permission_mode: str | None = None,
     extended_thinking: bool | None = None,
+    initial_message: str | None = None,
 ) -> dict[str, Any]:
     """Create a thread - async wrapper for the agent's SpawnThread tool.
 
     If parent_id is provided and optional params not specified, inherits from parent.
     For sub-threads (with parent_id) in git repos, automatically creates an isolated worktree.
+
+    Args:
+        initial_message: If provided, adds this as the first user message BEFORE
+                        broadcasting thread_created. This prevents the race condition
+                        where frontend receives thread with 0 messages.
     """
     # Validate and normalize working directory
     validated_work_dir = validate_work_dir(work_dir)
@@ -542,6 +548,14 @@ async def create_thread_for_agent(
 
     # Store worktree info in thread metadata for response messages
     thread["_worktree_info"] = worktree_info
+
+    # Add initial message BEFORE broadcasting so it's included in thread_created event
+    # This prevents the race condition where frontend receives thread with 0 messages
+    if initial_message:
+        add_message(thread["id"], "user", initial_message)
+        # Refresh thread to include the message in the broadcast
+        thread = get_thread(thread["id"]) or thread
+        thread["_worktree_info"] = worktree_info
 
     # Broadcast thread_created to parent thread so frontend gets full thread data
     # (including permissionMode). The frontend filters out duplicate notifications
@@ -739,15 +753,22 @@ async def run_parent_thread_notification(thread_id: str, notification_content: s
         _processing_notifications.discard(thread_id)
 
 
-async def run_thread_for_agent(thread_id: str, message: str) -> None:
-    """Run a thread with a message - fire-and-forget for SpawnThread with initial_message."""
+async def run_thread_for_agent(thread_id: str, message: str, skip_add_message: bool = False) -> None:
+    """Run a thread with a message - fire-and-forget for SpawnThread with initial_message.
+
+    Args:
+        thread_id: The thread to run
+        message: The user message to process
+        skip_add_message: If True, skip adding the user message (already added by SpawnThread)
+    """
     thread = get_thread(thread_id)
     if not thread:
         logger.error(f"Thread {thread_id} not found for initial message")
         return
 
-    # Add the user message
-    add_message(thread_id, "user", message)
+    # Add the user message (unless already added by SpawnThread to fix race condition)
+    if not skip_add_message:
+        add_message(thread_id, "user", message)
     update_thread_status(thread_id, "pending")
 
     # Broadcast status change so UI shows processing indicator
