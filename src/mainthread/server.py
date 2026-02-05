@@ -750,6 +750,12 @@ async def run_thread_for_agent(thread_id: str, message: str) -> None:
     add_message(thread_id, "user", message)
     update_thread_status(thread_id, "pending")
 
+    # Broadcast status change so UI shows processing indicator
+    await broadcast_to_thread(thread_id, {
+        "type": "status_change",
+        "data": {"status": "pending"},
+    })
+
     # Register current task for cancellation support
     current_task = asyncio.current_task()
     if current_task:
@@ -1457,18 +1463,24 @@ def _collect_system_stats_sync() -> dict[str, Any]:
 
     # Claude processes (subprocess count)
     # Claude Agent SDK spawns "claude" CLI processes
-    # We look for processes where the binary/first arg is "claude"
+    # We look for processes where the binary/first arg is "claude" or process name is "claude"
     claude_processes: list[dict[str, Any]] = []
     for proc in psutil.process_iter(["pid", "name", "cmdline", "memory_percent", "cpu_percent"]):
         try:
             cmdline = proc.info.get("cmdline") or []
-            if not cmdline:
-                continue
+            proc_name = (proc.info.get("name") or "").lower()
 
-            # Check if the first argument (binary) is "claude" or ends with "/claude"
-            # This excludes shells that just have "claude" in their history/context
+            # Check multiple ways a Claude process might appear:
+            # 1. Process name is "claude"
+            # 2. First cmdline arg is "claude" or ends with "/claude"
+            # 3. Any cmdline arg contains "claude" binary path (for spawned subprocesses)
             first_arg = cmdline[0] if cmdline else ""
-            is_claude_binary = first_arg == "claude" or first_arg.endswith("/claude")
+            is_claude_binary = (
+                proc_name == "claude"
+                or first_arg == "claude"
+                or first_arg.endswith("/claude")
+                or any("bin/claude" in arg or "/claude" == arg for arg in cmdline[:2])
+            )
 
             # Exclude Chrome extension processes
             cmdline_str = " ".join(cmdline).lower()

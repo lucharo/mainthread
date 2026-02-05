@@ -115,12 +115,13 @@ You can spawn your own sub-threads for parallel work using SpawnThread. This ena
 hierarchical task decomposition - break complex tasks into independent sub-tasks.
 You also have access to ListThreads, ReadThread, ArchiveThread, and SendToThread.
 
-COMPLETION SIGNALING:
-When you finish your task or get blocked, use the SignalStatus tool to notify your parent:
-- Call SignalStatus(status="done", reason="...") when your task is complete
-- Call SignalStatus(status="blocked", reason="...") when you need human input or are stuck
+**CRITICAL - COMPLETION SIGNALING (REQUIRED):**
+You MUST call SignalStatus when you finish your task. This is NOT optional.
+- Call `SignalStatus(status="done", reason="<brief summary of what you accomplished>")` when complete
+- Call `SignalStatus(status="blocked", reason="<what you need>")` if you need human input
 
-Your parent thread will be automatically notified when you signal your status.
+Without calling SignalStatus, your parent thread will never know you finished and cannot
+continue its work. ALWAYS end your work by calling SignalStatus.
 """
     else:
         # Main thread prompt: delegation and coordination capabilities
