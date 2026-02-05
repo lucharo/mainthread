@@ -443,7 +443,7 @@ async def create_thread_for_agent(
     permission_mode: str | None = None,
     extended_thinking: bool | None = None,
     initial_message: str | None = None,
-    worktree_dir: str = ".mainthread/worktrees/",
+    worktree_subdir: str = ".mainthread/worktrees/",
 ) -> dict[str, Any]:
     """Create a thread - async wrapper for the agent's SpawnThread tool.
 
@@ -454,7 +454,7 @@ async def create_thread_for_agent(
         initial_message: If provided, adds this as the first user message BEFORE
                         broadcasting thread_created. This prevents the race condition
                         where frontend receives thread with 0 messages.
-        worktree_dir: Relative path for git worktrees (default: .mainthread/worktrees/)
+        worktree_subdir: Relative path within work_dir for git worktrees (default: .mainthread/worktrees/)
     """
     # Validate and normalize working directory
     validated_work_dir = validate_work_dir(work_dir)
@@ -482,7 +482,7 @@ async def create_thread_for_agent(
         # Generate a temporary thread_id for worktree naming (will be the actual thread_id)
         import uuid
         temp_thread_id = str(uuid.uuid4())
-        worktree_info = await create_git_worktree(validated_work_dir, temp_thread_id, worktree_dir)
+        worktree_info = await create_git_worktree(validated_work_dir, temp_thread_id, worktree_subdir)
 
         if worktree_info["success"]:
             # Use the worktree path as the working directory
@@ -1287,12 +1287,25 @@ def _create_git_worktree_sync(
 
         # Resolve paths and verify target is within base_work_dir
         base_path = Path(base_work_dir).resolve()
-        worktree_dir = (base_path / clean_subdir / id_prefix).resolve()
 
-        try:
-            worktree_dir.relative_to(base_path)
-        except ValueError:
-            result["error"] = "Worktree directory must be within the working directory"
+        def _validate_worktree_path(wt_path: Path) -> str | None:
+            """Validate worktree path is within base_path and doesn't traverse symlinks.
+            Returns error message or None if valid."""
+            try:
+                wt_path.relative_to(base_path)
+            except ValueError:
+                return "Worktree directory must be within the working directory"
+            # Reject paths that traverse symlinks (defense against symlink attacks)
+            for parent in wt_path.relative_to(base_path).parents:
+                candidate = base_path / parent
+                if candidate.is_symlink():
+                    return "Worktree path cannot traverse symlinks"
+            return None
+
+        worktree_dir = (base_path / clean_subdir / id_prefix).resolve()
+        validation_error = _validate_worktree_path(worktree_dir)
+        if validation_error:
+            result["error"] = validation_error
             return result
 
         # Ensure parent directory exists
@@ -1314,6 +1327,11 @@ def _create_git_worktree_sync(
                 if not success:
                     branch_name = alt_branch
                     worktree_dir = (base_path / clean_subdir / f"{id_prefix}-{i}").resolve()
+                    # Re-verify path after collision retry
+                    validation_error = _validate_worktree_path(worktree_dir)
+                    if validation_error:
+                        result["error"] = validation_error
+                        return result
                     break
             else:
                 result["error"] = "Could not find available branch name"
@@ -1835,7 +1853,7 @@ async def send_message(thread_id: str, request: SendMessageRequest) -> dict[str,
             },
         })
 
-        return {"status": "started", "threadId": thread_id, "userMessageId": user_message["id"]}
+        return {"status": "ok"}
 
     except asyncio.CancelledError:
         logger.info(f"Task cancelled for thread {thread_id}")

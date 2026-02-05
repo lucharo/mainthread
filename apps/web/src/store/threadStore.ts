@@ -332,24 +332,9 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         throw new Error(`${detail}${errorType} (HTTP ${res.status})`);
       }
 
-      const data = await res.json();
-
-      // Replace temp user message ID with real one from backend
-      // (The actual assistant message arrives via SSE 'complete' event)
-      if (data.userMessageId) {
-        set((state) => ({
-          threads: state.threads.map((t) =>
-            t.id === threadId
-              ? {
-                  ...t,
-                  messages: t.messages.map((m) =>
-                    m.id === tempId ? { ...m, id: data.userMessageId } : m
-                  ),
-                }
-              : t,
-          ),
-        }));
-      }
+      // HTTP response is fire-and-forget for success case.
+      // The SSE 'complete' event is the sole source of truth for final messages.
+      await res.json();
     } catch (err) {
       // Handle abort/timeout specifically
       if (err instanceof DOMException && err.name === 'AbortError') {
