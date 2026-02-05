@@ -65,8 +65,8 @@ class SessionClientCache:
         ttl_seconds: float | None = None,
         enabled: bool | None = None,
     ):
-        # Allow env var overrides - CACHE_ENABLED=true to enable caching (disabled by default until stable)
-        self._enabled = enabled if enabled is not None else os.getenv("CACHE_ENABLED", "false").lower() == "true"
+        # Allow env var overrides - CACHE_ENABLED defaults to true (set to false to disable)
+        self._enabled = enabled if enabled is not None else os.getenv("CACHE_ENABLED", "true").lower() == "true"
         self._max_cached = max_cached or int(os.getenv("CACHE_MAX_CLIENTS", "5"))
         self._ttl = ttl_seconds or float(os.getenv("CACHE_TTL_SECONDS", "300"))
 
