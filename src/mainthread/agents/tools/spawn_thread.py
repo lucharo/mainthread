@@ -36,7 +36,9 @@ def create_spawn_thread_tool(
         "Optional configuration (inherits from parent if not specified):\n"
         "- model: 'claude-sonnet-4-5', 'claude-opus-4-5', 'claude-opus-4-6', or 'claude-haiku-4-5'\n"
         "- permission_mode: 'default', 'acceptEdits', 'bypassPermissions', or 'plan'\n"
-        "- extended_thinking: true/false for extended thinking mode",
+        "- extended_thinking: true/false for extended thinking mode\n"
+        "- use_worktree: true/false to create an isolated git worktree for the sub-thread (default: false). "
+        "Use this when the sub-thread needs to make file changes independently without conflicting with other threads.",
         {
             "title": str,
             "work_dir": str,
@@ -44,6 +46,7 @@ def create_spawn_thread_tool(
             "model": str,
             "permission_mode": str,
             "extended_thinking": bool,
+            "use_worktree": bool,
         },
     )
     async def spawn_thread(args: dict[str, Any]) -> dict[str, Any]:
@@ -89,6 +92,7 @@ def create_spawn_thread_tool(
                 permission_mode=permission_mode,
                 extended_thinking=extended_thinking,
                 initial_message=initial_message,  # Added BEFORE broadcast to fix race condition
+                use_worktree=args.get("use_worktree", False),
             )
 
             # Build worktree status message

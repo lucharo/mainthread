@@ -118,8 +118,14 @@ function useUrlThreadSync() {
 }
 
 export default function App() {
-  const { fetchThreads, activeThreadId, createThread, setActiveThread, setShowArchived } = useThreadStore();
-  const { toggleSettings, showArchivedByDefault, toggleCommandPalette } = useSettingsStore();
+  const fetchThreads = useThreadStore((state) => state.fetchThreads);
+  const activeThreadId = useThreadStore((state) => state.activeThreadId);
+  const createThread = useThreadStore((state) => state.createThread);
+  const setActiveThread = useThreadStore((state) => state.setActiveThread);
+  const setShowArchived = useThreadStore((state) => state.setShowArchived);
+  const toggleSettings = useSettingsStore((state) => state.toggleSettings);
+  const showArchivedByDefault = useSettingsStore((state) => state.showArchivedByDefault);
+  const toggleCommandPalette = useSettingsStore((state) => state.toggleCommandPalette);
 
   // Apply theme class
   useThemeEffect();

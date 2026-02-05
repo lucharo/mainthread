@@ -19,7 +19,10 @@ export function CommandPalette() {
     openCreateThreadModal,
   } = useSettingsStore();
 
-  const { activeThreadId, threads, stopThread, clearThreadMessages } = useThreadStore();
+  const activeThreadId = useThreadStore((state) => state.activeThreadId);
+  const threads = useThreadStore((state) => state.threads);
+  const stopThread = useThreadStore((state) => state.stopThread);
+  const clearThreadMessages = useThreadStore((state) => state.clearThreadMessages);
 
   const [search, setSearch] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);

@@ -82,7 +82,15 @@ def has_active_task(thread_id: str) -> bool:
     return active is not None and not active.task.done()
 
 
-def clear_all_tasks() -> None:
-    """Clear all tracked tasks (for hot reload/shutdown)."""
+async def clear_all_tasks() -> None:
+    """Cancel and clear all tracked tasks (for hot reload/shutdown)."""
+    cancelled_count = 0
+    for thread_id, active in _active_tasks.items():
+        if not active.task.done():
+            active.task.cancel()
+            cancelled_count += 1
+            logger.debug(f"Cancelled task for thread {thread_id}")
+    if cancelled_count:
+        await asyncio.sleep(0)  # Give tasks a chance to handle cancellation
     _active_tasks.clear()
-    logger.debug("Cleared all tracked tasks")
+    logger.info(f"Cleared all tracked tasks ({cancelled_count} cancelled)")

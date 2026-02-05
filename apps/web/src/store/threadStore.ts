@@ -663,8 +663,16 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         const lastSeen = get().lastSeenEventId[threadId];
         const lastSeenNum = parseInt(lastSeen, 10);
         const currentNum = parseInt(event.lastEventId, 10);
-        if (!isNaN(lastSeenNum) && !isNaN(currentNum) && currentNum <= lastSeenNum) {
-          return; // Skip already-seen event
+        if (!isNaN(lastSeenNum) && !isNaN(currentNum)) {
+          // Detect server restart: seq_id dropped significantly (stale lastSeenEventId)
+          if (lastSeenNum > 10 && currentNum < lastSeenNum) {
+            console.log(`[SSE] Server restart detected for thread ${threadId}: seq went from ${lastSeenNum} to ${currentNum}, resetting lastSeenEventId`);
+            set((state) => ({
+              lastSeenEventId: { ...state.lastSeenEventId, [threadId]: '0' },
+            }));
+          } else if (currentNum <= lastSeenNum) {
+            return; // Skip already-seen event
+          }
         }
         set((state) => ({
           lastSeenEventId: { ...state.lastSeenEventId, [threadId]: event.lastEventId },
@@ -685,8 +693,16 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         const lastSeen = get().lastSeenEventId[threadId];
         const lastSeenNum = parseInt(lastSeen, 10);
         const currentNum = parseInt(event.lastEventId, 10);
-        if (!isNaN(lastSeenNum) && !isNaN(currentNum) && currentNum <= lastSeenNum) {
-          return; // Skip already-seen event
+        if (!isNaN(lastSeenNum) && !isNaN(currentNum)) {
+          // Detect server restart: seq_id dropped significantly (stale lastSeenEventId)
+          if (lastSeenNum > 10 && currentNum < lastSeenNum) {
+            console.log(`[SSE] Server restart detected for thread ${threadId}: seq went from ${lastSeenNum} to ${currentNum}, resetting lastSeenEventId`);
+            set((state) => ({
+              lastSeenEventId: { ...state.lastSeenEventId, [threadId]: '0' },
+            }));
+          } else if (currentNum <= lastSeenNum) {
+            return; // Skip already-seen event
+          }
         }
         set((state) => ({
           lastSeenEventId: { ...state.lastSeenEventId, [threadId]: event.lastEventId },
@@ -1543,6 +1559,10 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   cleanupAllConnections: () => {
     const { sseConnections } = get();
     Object.values(sseConnections).forEach((conn) => {
+      // Clear any pending reconnect timeouts to prevent memory leaks
+      if (conn.reconnectTimeoutId) {
+        clearTimeout(conn.reconnectTimeoutId);
+      }
       conn.eventSource.close();
     });
     set({ sseConnections: {}, streamingBlocks: {}, expandedStreamingBlockId: {}, recentToolBlockIds: {}, pendingQuestion: {}, pendingPlanApproval: {}, threadNotifications: {}, pagination: {}, spawnedThreadIds: {}, lastSeenEventId: {}, childPendingQuestions: {}, queueWaiting: {} });

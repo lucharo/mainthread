@@ -171,7 +171,7 @@ async def lifespan(app: FastAPI):
     _notification_queues.clear()
     _notification_workers.clear()
     sse_event_store.clear()
-    clear_all_tasks()
+    await clear_all_tasks()
     reset_agent_state()
 
     # Reset any stale pending threads to active (from previous server instance)
@@ -200,12 +200,16 @@ async def lifespan(app: FastAPI):
 
     thread_subscribers.clear()
     # Cancel notification workers
-    for worker in _notification_workers.values():
+    worker_count = len(_notification_workers)
+    for tid, worker in _notification_workers.items():
         worker.cancel()
+        logger.debug(f"Cancelled notification worker for thread {tid}")
     _notification_queues.clear()
     _notification_workers.clear()
+    if worker_count:
+        logger.info(f"Cancelled {worker_count} notification workers")
     sse_event_store.clear()
-    clear_all_tasks()
+    await clear_all_tasks()
     logger.info("MainThread API shutdown complete")
 
 
@@ -543,17 +547,20 @@ async def create_thread_for_agent(
     permission_mode: str | None = None,
     extended_thinking: bool | None = None,
     initial_message: str | None = None,
+    use_worktree: bool = False,
     worktree_subdir: str = ".mainthread/worktrees/",
 ) -> dict[str, Any]:
     """Create a thread - async wrapper for the agent's SpawnThread tool.
 
     If parent_id is provided and optional params not specified, inherits from parent.
-    For sub-threads (with parent_id) in git repos, automatically creates an isolated worktree.
+    If use_worktree is True and the thread is a sub-thread in a git repo, creates an
+    isolated worktree for the sub-thread to work in.
 
     Args:
         initial_message: If provided, adds this as the first user message BEFORE
                         broadcasting thread_created. This prevents the race condition
                         where frontend receives thread with 0 messages.
+        use_worktree: If True, create an isolated git worktree for the sub-thread (default: False).
         worktree_subdir: Relative path within work_dir for git worktrees (default: .mainthread/worktrees/)
     """
     # Validate and normalize working directory
@@ -572,13 +579,13 @@ async def create_thread_for_agent(
             if extended_thinking is None:
                 extended_thinking = parent.get("extendedThinking", True)
 
-    # For sub-threads in git repos, automatically create an isolated worktree
+    # For sub-threads in git repos, create an isolated worktree if requested
     worktree_info: dict[str, Any] = {"success": False, "worktree_path": None, "branch_name": None, "error": None}
     final_work_dir = validated_work_dir
     final_is_worktree = git_info["is_worktree"]
     worktree_branch: str | None = None
 
-    if parent_id and git_info["git_branch"] and not git_info["is_worktree"]:
+    if use_worktree and parent_id and git_info["git_branch"] and not git_info["is_worktree"]:
         # Generate a temporary thread_id for worktree naming (will be the actual thread_id)
         import uuid
         temp_thread_id = str(uuid.uuid4())
@@ -1085,6 +1092,7 @@ class CreateThreadRequest(BaseModel):
     model: ModelType = "claude-opus-4-5"
     extendedThinking: bool = True
     permissionMode: PermissionMode = "acceptEdits"  # Default to acceptEdits (like Claude Code build mode)
+    useWorktree: bool = False  # If True, create an isolated git worktree for the thread
 
 
 class UpdateConfigRequest(BaseModel):
@@ -1893,16 +1901,36 @@ async def create_new_thread(request: CreateThreadRequest) -> dict[str, Any]:
         # Detect git info from working directory
         git_info = await detect_git_info(work_dir)
 
+        final_work_dir = work_dir
+        final_is_worktree = git_info["is_worktree"]
+        worktree_branch: str | None = None
+
+        # Create an isolated git worktree if requested
+        if request.useWorktree and request.parentId and git_info["git_branch"] and not git_info["is_worktree"]:
+            import uuid
+            temp_thread_id = str(uuid.uuid4())
+            worktree_info = await create_git_worktree(work_dir, temp_thread_id)
+            if worktree_info["success"]:
+                final_work_dir = worktree_info["worktree_path"]
+                final_is_worktree = True
+                worktree_branch = worktree_info["branch_name"]
+                git_info = {
+                    "git_branch": worktree_branch,
+                    "git_repo": git_info["git_repo"],
+                    "is_worktree": True,
+                }
+
         thread = create_thread(
             title=request.title,
             parent_id=request.parentId,
-            work_dir=work_dir,
+            work_dir=final_work_dir,
             model=request.model,
             extended_thinking=request.extendedThinking,
             permission_mode=request.permissionMode,
             git_branch=git_info["git_branch"],
             git_repo=git_info["git_repo"],
-            is_worktree=git_info["is_worktree"],
+            is_worktree=final_is_worktree,
+            worktree_branch=worktree_branch,
         )
         return thread
     except ValueError as e:
@@ -2186,6 +2214,9 @@ async def cleanup_thread_resources(thread_id: str) -> None:
         del _notification_workers[thread_id]
     if thread_id in _notification_queues:
         del _notification_queues[thread_id]
+
+    # 5. Cancel any active agent task for this thread
+    stop_task(thread_id)
 
     logger.info(f"Cleaned up resources for thread {thread_id}")
 
