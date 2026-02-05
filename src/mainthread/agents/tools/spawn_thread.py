@@ -56,7 +56,7 @@ def create_spawn_thread_tool(
             }
 
         # Valid options for validation
-        VALID_MODELS = {"claude-sonnet-4-5", "claude-opus-4-5", "claude-haiku-4-5"}
+        VALID_MODELS = {"claude-sonnet-4-5", "claude-opus-4-5", "claude-opus-4-6", "claude-haiku-4-5"}
         VALID_PERMISSION_MODES = {"default", "acceptEdits", "bypassPermissions", "plan"}
 
         # Use provided values or inherit from parent (explicit key check for booleans)

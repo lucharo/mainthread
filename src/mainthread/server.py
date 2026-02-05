@@ -2180,8 +2180,12 @@ async def cleanup_thread_resources(thread_id: str) -> None:
     # 3. Clear any pending questions for this thread
     await clear_pending_question(thread_id)
 
-    # 4. Remove from processing notifications set if present
-    _processing_notifications.discard(thread_id)
+    # 4. Clean up notification queue/worker if present
+    if thread_id in _notification_workers:
+        _notification_workers[thread_id].cancel()
+        del _notification_workers[thread_id]
+    if thread_id in _notification_queues:
+        del _notification_queues[thread_id]
 
     logger.info(f"Cleaned up resources for thread {thread_id}")
 

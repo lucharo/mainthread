@@ -65,11 +65,17 @@ def serve(
     typer.echo(f"Starting MainThread on http://{host}:{actual_port}")
     typer.echo("Press Ctrl+C to stop")
 
+    reload_kwargs = {}
+    if reload:
+        reload_kwargs["reload_dirs"] = ["src"]
+        reload_kwargs["reload_excludes"] = [".mainthread"]
+
     uvicorn.run(
         "mainthread.server:app",
         host=host,
         port=actual_port,
         reload=reload,
+        **reload_kwargs,
     )
 
 
