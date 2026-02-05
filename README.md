@@ -3,7 +3,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/mainthread.svg)](https://pypi.org/project/mainthread/)
 [![Python versions](https://img.shields.io/pypi/pyversions/mainthread.svg)](https://pypi.org/project/mainthread/)
 [![License](https://img.shields.io/pypi/l/mainthread.svg)](https://github.com/lucharo/mainthread/blob/main/LICENSE)
-[![Discord](https://img.shields.io/discord/1327000000000000000?label=Discord&logo=discord)](https://discord.gg/pCCmS8Yh)
+[![Discord](https://img.shields.io/badge/Discord-Join-7289da?logo=discord&logoColor=white)](https://discord.gg/yPEfp3Z8Z6)
 
 Multi-threaded Claude conversations with a web UI. Spawn sub-threads for parallel work that you can jump into at any time—these aren't autonomous sub-agents running in the background, they're full conversations you can continue from the CLI or UI whenever you need to.
 
