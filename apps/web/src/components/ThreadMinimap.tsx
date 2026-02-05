@@ -21,8 +21,9 @@ const PADDING = 16;
 const STATUS_COLORS: Record<string, string> = {
   active: '#22c55e',
   pending: '#f59e0b',
+  running: '#3b82f6',
   done: '#9ca3af',
-  needs_attention: '#ef4444',
+  needs_attention: '#f59e0b',
   new_message: '#3b82f6',
 };
 
@@ -134,6 +135,18 @@ function DotNode({
         />
       )}
 
+      {/* Invisible larger hit area for easier clicking */}
+      <circle
+        cx={node.x + PADDING}
+        cy={node.y + PADDING}
+        r={12}
+        fill="transparent"
+        className="cursor-pointer"
+        onClick={() => onNavigate(node.id)}
+        onMouseEnter={() => setTooltip(node.id)}
+        onMouseLeave={() => setTooltip(null)}
+      />
+
       {/* Dot */}
       <circle
         cx={node.x + PADDING}
@@ -142,7 +155,7 @@ function DotNode({
         fill={color}
         stroke={isActive ? '#f97316' : 'none'}
         strokeWidth={isActive ? 2 : 0}
-        className="cursor-pointer transition-transform"
+        className="cursor-pointer transition-transform pointer-events-none"
         onClick={() => onNavigate(node.id)}
         onMouseEnter={() => setTooltip(node.id)}
         onMouseLeave={() => setTooltip(null)}

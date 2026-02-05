@@ -59,7 +59,7 @@ export function ThinkingBlock({
           <span className="flex-1 text-left text-sm font-medium">
             {isStreaming ? (
               <span className="flex items-center gap-2">
-                thinking
+                Thinking
                 <span className="flex gap-0.5">
                   <span
                     className="w-1 h-1 bg-amber-500 rounded-full animate-bounce"
@@ -76,7 +76,7 @@ export function ThinkingBlock({
                 </span>
               </span>
             ) : (
-              "Claude's Reasoning"
+              'Thinking'
             )}
           </span>
           <svg

@@ -12,8 +12,9 @@ import { Toggle } from './Toggle';
 
 // Simplified status colors: Green (ready), Red (stopped), Orange (processing)
 const STATUS_COLORS: Record<ThreadStatus, { bg: string; label: string }> = {
-  needs_attention: { bg: 'bg-red-500', label: 'Needs attention' },
+  needs_attention: { bg: 'bg-amber-500', label: 'Needs attention' },
   pending: { bg: 'bg-orange-500', label: 'Processing' },
+  running: { bg: 'bg-blue-500', label: 'Running' },
   active: { bg: 'bg-green-500', label: 'Active' },
   done: { bg: 'bg-gray-400', label: 'Done' },
   new_message: { bg: 'bg-red-500', label: 'New message' },
@@ -23,7 +24,7 @@ function StatusDot({ status }: { status: ThreadStatus }) {
   const config = STATUS_COLORS[status];
   // Only blink when thread is pending (actively processing), not when active (idle)
   // This prevents the animation from abruptly stopping when transitioning pending → active → done
-  const isProcessing = status === 'pending';
+  const isProcessing = status === 'pending' || status === 'running';
   return (
     <span
       className={`w-2 h-2 rounded-full ${config.bg} flex-shrink-0 ${isProcessing ? 'animate-neon-blink' : ''}`}
@@ -527,8 +528,8 @@ function ThreadItem({
           </span>
         </button>
 
-        {/* Stop button - shown on hover for pending threads */}
-        {thread.status === 'pending' && (
+        {/* Stop button - shown on hover for pending/running threads */}
+        {(thread.status === 'pending' || thread.status === 'running') && (
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -792,7 +793,7 @@ function SubThreadItem({ sub, isActive, onSelect, onStop, onArchive, onRename }:
       </button>
 
       {/* Stop button */}
-      {sub.status === 'pending' && (
+      {(sub.status === 'pending' || sub.status === 'running') && (
         <button
           onClick={(e) => {
             e.stopPropagation();

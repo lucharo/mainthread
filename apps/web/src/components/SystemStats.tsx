@@ -1,21 +1,11 @@
 import { useEffect, useState } from 'react';
 
-interface CacheStats {
-  cached_clients: number;
-  max_cached: number;
-  ttl_seconds: number;
-  hits: number;
-  misses: number;
-  hit_rate: number;
-}
-
 interface Stats {
   cpu_percent: number;
   memory_percent: number;
   memory_used_gb: number;
   memory_total_gb: number;
   claude_process_count: number;
-  cache: CacheStats;
   error?: string;
 }
 
@@ -150,25 +140,6 @@ export function SystemStats() {
               </span>
             </div>
             <StatBar value={stats.memory_percent} />
-          </div>
-
-          {/* Cache stats */}
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs">
-              <span className="text-muted-foreground">Client Cache</span>
-              <span>
-                {stats.cache.cached_clients}/{stats.cache.max_cached}
-              </span>
-            </div>
-            <StatBar
-              value={stats.cache.cached_clients}
-              max={stats.cache.max_cached}
-              colorThresholds={{ warning: 3, critical: 4 }}
-            />
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>Hit rate</span>
-              <span>{(stats.cache.hit_rate * 100).toFixed(1)}%</span>
-            </div>
           </div>
 
           {/* Claude processes */}

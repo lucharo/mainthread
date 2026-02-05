@@ -829,6 +829,8 @@ async def _notification_worker(thread_id: str) -> None:
             processor = MessageStreamProcessor(thread_id)
 
             async with _agent_semaphore:
+                update_thread_status(thread_id, "running")
+                await broadcast_to_thread(thread_id, {"type": "status_change", "data": {"status": "running"}})
                 async with asyncio.timeout(300):
                     async for msg in run_agent(thread, notification_content):
                         await processor.process_message(msg)
@@ -910,6 +912,8 @@ async def run_thread_for_agent(thread_id: str, message: str, skip_add_message: b
                 "type": "queue_acquired",
                 "data": {},
             })
+            update_thread_status(thread_id, "running")
+            await broadcast_to_thread(thread_id, {"type": "status_change", "data": {"status": "running"}})
             async with asyncio.timeout(300):  # 5 minute timeout
                 async for msg in run_agent(thread, message):
                     await processor.process_message(msg)
@@ -1078,7 +1082,7 @@ register_send_to_thread_callback(send_to_thread_for_agent)
 
 
 # Pydantic models with validation
-ThreadStatus = Literal["active", "pending", "needs_attention", "done", "new_message"]
+ThreadStatus = Literal["active", "pending", "running", "needs_attention", "done", "new_message"]
 ModelType = Literal["claude-sonnet-4-5", "claude-opus-4-5", "claude-opus-4-6", "claude-haiku-4-5"]
 
 
@@ -2017,6 +2021,8 @@ async def send_message(thread_id: str, request: SendMessageRequest) -> dict[str,
         processor = MessageStreamProcessor(thread_id)
 
         async with _agent_semaphore:
+            update_thread_status(thread_id, "running")
+            await broadcast_to_thread(thread_id, {"type": "status_change", "data": {"status": "running"}})
             async with asyncio.timeout(300):  # 5 minute timeout
                 async for msg in run_agent(
                     thread,

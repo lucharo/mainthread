@@ -2,6 +2,15 @@ import { useCallback, useState } from 'react';
 import type { Thread, TokenInfo } from '../store/threadStore';
 import { formatPath } from '../utils/paths';
 
+function getDisplayPath(workDir: string): string {
+  // Hide worktree implementation detail - show parent repo path instead
+  const worktreeIdx = workDir.indexOf('.mainthread/worktrees/');
+  if (worktreeIdx > 0) {
+    return workDir.substring(0, worktreeIdx - 1); // Remove trailing /
+  }
+  return workDir;
+}
+
 interface ThreadHeaderProps {
   thread: Thread;
   parentThread?: Thread;
@@ -67,8 +76,8 @@ export function ThreadHeader({
           )}
           <h2 className="font-semibold text-sm">{thread.title}</h2>
           {thread.workDir && (
-            <p className="text-xs text-muted-foreground" title={thread.workDir}>
-              {formatPath(thread.workDir)}
+            <p className="text-xs text-muted-foreground" title={getDisplayPath(thread.workDir)}>
+              {formatPath(getDisplayPath(thread.workDir))}
             </p>
           )}
         </div>
@@ -159,7 +168,7 @@ export function ThreadHeader({
           <button
             onClick={handleCopyResumeCommand}
             className="p-1.5 rounded border border-border bg-background hover:bg-muted text-muted-foreground hover:text-foreground"
-            title={copiedResume ? 'Copied!' : `Resume in CLI: cd "${thread.workDir}" && claude --resume ${thread.sessionId}`}
+            title={copiedResume ? 'Copied!' : `Resume in CLI: cd "${getDisplayPath(thread.workDir!)}" && claude --resume ${thread.sessionId}`}
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path

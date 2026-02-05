@@ -45,7 +45,7 @@ def _get_db_path() -> Path:
 DB_PATH = _get_db_path()
 
 VALID_ROLES = {"user", "assistant", "system"}
-VALID_STATUSES = {"active", "pending", "needs_attention", "done", "new_message"}
+VALID_STATUSES = {"active", "pending", "running", "needs_attention", "done", "new_message"}
 
 
 @contextmanager

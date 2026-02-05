@@ -6,6 +6,7 @@
 export type ThreadStatus =
   | 'active'
   | 'pending'
+  | 'running'
   | 'needs_attention'
   | 'done'
   | 'new_message';

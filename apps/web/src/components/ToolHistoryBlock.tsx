@@ -13,7 +13,8 @@ interface ToolHistoryBlockProps {
 }
 
 export function ToolHistoryBlock({ tools, onNavigateToThread }: ToolHistoryBlockProps) {
-  const [expanded, setExpanded] = useState(false);
+  const isSpawnOnly = tools.every(t => t.name === 'SpawnThread');
+  const [expanded, setExpanded] = useState(isSpawnOnly);
   const threads = useThreadStore((state) => state.threads);
 
   // Helper to find thread by title (for SpawnThread navigation)
@@ -188,10 +189,13 @@ function ToolHistoryItem({
     return formatExpandedToolInput(tool.name, tool.input);
   }, [tool.name, tool.input]);
 
-  // For SpawnThread, find the thread ID by title
+  // For SpawnThread, find the thread ID by title and check if it's live
   const isSpawnThread = tool.name === 'SpawnThread';
   const spawnedThreadTitle = isSpawnThread && tool.input?.title ? String(tool.input.title) : null;
   const spawnedThreadId = spawnedThreadTitle ? findThreadByTitle(spawnedThreadTitle) : null;
+  const threads = useThreadStore((state) => state.threads);
+  const spawnedThread = spawnedThreadId ? threads.find(t => t.id === spawnedThreadId) : null;
+  const isLive = spawnedThread && spawnedThread.status !== 'pending';
 
   const handleNavigate = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -255,8 +259,8 @@ function ToolHistoryItem({
             </svg>
           )}
         </button>
-        {/* Jump to thread button for SpawnThread */}
-        {isSpawnThread && spawnedThreadId && onNavigateToThread && (
+        {/* Jump to thread button for SpawnThread - only clickable when thread is live (not pending) */}
+        {isSpawnThread && spawnedThreadId && isLive && onNavigateToThread && (
           <button
             onClick={handleNavigate}
             className="px-2 py-1 mr-2 text-xs text-primary hover:bg-primary/10 rounded transition-colors flex items-center gap-1"
