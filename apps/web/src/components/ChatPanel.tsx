@@ -10,6 +10,7 @@ import {
   type PendingPlanApproval,
   useThreadStore,
 } from '../store/threadStore';
+import { useSettingsStore } from '../store/settingsStore';
 import { CreateSubThreadModal } from './CreateSubThreadModal';
 import { CreateThreadModal } from './CreateThreadModal';
 import { ThinkingBlock } from './ThinkingBlock';
@@ -175,6 +176,10 @@ export function ChatPanel() {
   const clearThreadMessages = useThreadStore((state) => state.clearThreadMessages);
   const archiveThread = useThreadStore((state) => state.archiveThread);
   const stopThread = useThreadStore((state) => state.stopThread);
+
+  // Experimental settings for nested sub-threads
+  const allowNestedSubthreads = useSettingsStore((state) => state.experimentalAllowNestedSubthreads);
+  const maxThreadDepth = useSettingsStore((state) => state.experimentalMaxThreadDepth);
 
   const [isCreatingThread, setIsCreatingThread] = useState(false);
   const [showSpawnModal, setShowSpawnModal] = useState(false);
@@ -342,9 +347,11 @@ export function ChatPanel() {
       await sendMessage(activeThreadId, content, {
         images: apiImages,
         fileRefs,
+        allowNestedSubthreads,
+        maxThreadDepth,
       });
     },
-    [activeThreadId, sendMessage]
+    [activeThreadId, sendMessage, allowNestedSubthreads, maxThreadDepth]
   );
 
   const handleCreateThread = async (options: {

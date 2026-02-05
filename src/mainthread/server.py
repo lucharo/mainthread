@@ -899,6 +899,9 @@ class SendMessageRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=100000)
     images: list[ImageAttachment] | None = Field(None, max_length=10, description="Optional image attachments (max 10)")
     file_references: list[str] | None = Field(None, max_length=20, description="Optional file paths to include as context")
+    # Experimental settings for nested sub-threads
+    allow_nested_subthreads: bool = Field(False, description="Allow sub-threads to spawn their own sub-threads")
+    max_thread_depth: int = Field(1, ge=1, le=5, description="Maximum nesting depth (1 = only main thread can spawn)")
 
 
 class UpdateStatusRequest(BaseModel):
@@ -1660,7 +1663,13 @@ async def send_message(thread_id: str, request: SendMessageRequest) -> dict[str,
         processor = MessageStreamProcessor(thread_id)
 
         async with asyncio.timeout(300):  # 5 minute timeout
-            async for msg in run_agent(thread, message_content, images=images):
+            async for msg in run_agent(
+                thread,
+                message_content,
+                images=images,
+                allow_nested_subthreads=request.allow_nested_subthreads,
+                max_thread_depth=request.max_thread_depth,
+            ):
                 await processor.process_message(msg)
 
         await processor.finalize()

@@ -238,6 +238,34 @@ def get_thread(thread_id: str) -> dict[str, Any] | None:
         return _format_thread(dict(row), messages)
 
 
+def get_thread_depth(thread_id: str) -> int:
+    """Calculate the depth of a thread in the hierarchy.
+
+    Returns:
+        0 for main threads (no parent)
+        1 for direct sub-threads
+        2+ for nested sub-threads
+    """
+    depth = 0
+    current_id = thread_id
+
+    with get_db() as conn:
+        while True:
+            cursor = conn.execute(
+                "SELECT parent_id FROM threads WHERE id = ?", (current_id,)
+            )
+            row = cursor.fetchone()
+            if row is None or row["parent_id"] is None:
+                break
+            depth += 1
+            current_id = row["parent_id"]
+            # Safety limit to prevent infinite loops
+            if depth > 10:
+                break
+
+    return depth
+
+
 def get_messages_by_thread_internal(
     conn: sqlite3.Connection, thread_id: str
 ) -> list[dict[str, Any]]:

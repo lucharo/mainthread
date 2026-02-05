@@ -39,6 +39,7 @@ from claude_agent_sdk.types import (
 )
 
 from mainthread.agents.registry import get_registry
+from mainthread.db import get_thread_depth
 from mainthread.agents.tools import (
     create_archive_thread_tool,
     create_list_threads_tool,
@@ -429,6 +430,8 @@ async def run_agent(
     user_message: str,
     question_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     images: list[dict[str, str]] | None = None,
+    allow_nested_subthreads: bool = False,
+    max_thread_depth: int = 1,
 ) -> AsyncIterator[AgentMessage]:
     """Run the Claude agent for a thread, yielding messages as they stream.
 
@@ -447,6 +450,8 @@ async def run_agent(
         user_message: The user's message to process
         question_callback: Optional callback for AskUserQuestion events
         images: Optional list of image dicts with 'data' (base64) and 'media_type'
+        allow_nested_subthreads: Whether sub-threads can spawn their own sub-threads
+        max_thread_depth: Maximum nesting depth (1 = only main thread can spawn)
 
     Yields:
         AgentMessage objects for each streaming event
@@ -482,39 +487,76 @@ async def run_agent(
     # Create MCP server config for custom tools
     mcp_servers = {}
 
-    # All threads get delegation tools (enables nested sub-threads)
-    spawn_tool = create_spawn_thread_tool(
-        parent_thread_id=thread_id,
-        parent_model=model,
-        parent_permission_mode=permission,
-        parent_extended_thinking=thread.get("extendedThinking", True),
+    # Calculate thread depth to determine if spawning is allowed
+    current_depth = get_thread_depth(thread_id)
+    can_spawn = current_depth < max_thread_depth and (
+        current_depth == 0 or allow_nested_subthreads
     )
+
+    logger.debug(
+        f"[AGENT] Thread {thread_id}: depth={current_depth}, "
+        f"max_depth={max_thread_depth}, allow_nested={allow_nested_subthreads}, "
+        f"can_spawn={can_spawn}"
+    )
+
+    # Thread management tools (all threads get read-only tools)
     list_threads_tool = create_list_threads_tool()
     archive_thread_tool = create_archive_thread_tool()
     read_thread_tool = create_read_thread_tool()
     send_to_thread_tool = create_send_to_thread_tool(thread_id)
-    mainthread_server = create_sdk_mcp_server(
-        name="mainthread",
-        version="1.0.0",
-        tools=[
-            spawn_tool,
-            list_threads_tool,
-            archive_thread_tool,
-            read_thread_tool,
-            send_to_thread_tool,
-        ],
-    )
+
+    # Only add SpawnThread if this thread is allowed to spawn
+    if can_spawn:
+        spawn_tool = create_spawn_thread_tool(
+            parent_thread_id=thread_id,
+            parent_model=model,
+            parent_permission_mode=permission,
+            parent_extended_thinking=thread.get("extendedThinking", True),
+        )
+        mainthread_server = create_sdk_mcp_server(
+            name="mainthread",
+            version="1.0.0",
+            tools=[
+                spawn_tool,
+                list_threads_tool,
+                archive_thread_tool,
+                read_thread_tool,
+                send_to_thread_tool,
+            ],
+        )
+        allowed_tools.extend(
+            [
+                "mcp__mainthread__SpawnThread",
+                "mcp__mainthread__ListThreads",
+                "mcp__mainthread__ArchiveThread",
+                "mcp__mainthread__ReadThread",
+                "mcp__mainthread__SendToThread",
+                "Task",
+            ]
+        )
+    else:
+        # Thread can't spawn, but still gets other management tools
+        mainthread_server = create_sdk_mcp_server(
+            name="mainthread",
+            version="1.0.0",
+            tools=[
+                list_threads_tool,
+                archive_thread_tool,
+                read_thread_tool,
+                send_to_thread_tool,
+            ],
+        )
+        allowed_tools.extend(
+            [
+                "mcp__mainthread__ListThreads",
+                "mcp__mainthread__ArchiveThread",
+                "mcp__mainthread__ReadThread",
+                "mcp__mainthread__SendToThread",
+                "Task",
+            ]
+        )
+
     mcp_servers["mainthread"] = mainthread_server
-    allowed_tools.extend(
-        [
-            "mcp__mainthread__SpawnThread",
-            "mcp__mainthread__ListThreads",
-            "mcp__mainthread__ArchiveThread",
-            "mcp__mainthread__ReadThread",
-            "mcp__mainthread__SendToThread",
-            "Task",
-        ]
-    )
 
     # Sub-threads also get SignalStatus to notify their parent
     if thread.get("parentId"):
