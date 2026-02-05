@@ -194,6 +194,7 @@ export function ChatPanel() {
   const [localError, setLocalError] = useState<string | null>(null);
   const [showProcessingIndicator, setShowProcessingIndicator] = useState(false);
   const [showMinimap, setShowMinimap] = useState(false);
+  const minimapManuallyClosedRef = useRef(false);
   const processingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -250,6 +251,33 @@ export function ChatPanel() {
 
   // Check if thread is read-only or ephemeral
   const isReadOnly = activeThread?.isReadOnly === true || activeThread?.isEphemeral === true;
+
+  // Auto-show minimap when active sub-threads exist, auto-hide when all done
+  const hasActiveSubThreads = useMemo(
+    () => threads.some((t) => t.parentId && !t.archivedAt && t.status !== 'done'),
+    [threads]
+  );
+  const hasAnySubThreads = useMemo(
+    () => threads.some((t) => t.parentId && !t.archivedAt),
+    [threads]
+  );
+  const minimapFadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (hasActiveSubThreads && !showMinimap && !minimapManuallyClosedRef.current) {
+      if (minimapFadeTimerRef.current) clearTimeout(minimapFadeTimerRef.current);
+      setShowMinimap(true);
+    } else if (!hasActiveSubThreads && showMinimap && !minimapManuallyClosedRef.current) {
+      // All sub-threads done - fade out after delay
+      minimapFadeTimerRef.current = setTimeout(() => {
+        if (!minimapManuallyClosedRef.current) {
+          setShowMinimap(false);
+        }
+      }, 3000);
+    }
+    return () => {
+      if (minimapFadeTimerRef.current) clearTimeout(minimapFadeTimerRef.current);
+    };
+  }, [hasActiveSubThreads]);
 
   // Minimum display time for ProcessingBlock (400ms) to ensure visibility
   const shouldShowProcessing = activeThread?.status === 'pending' && currentStreamingBlocks.length === 0;
@@ -515,6 +543,14 @@ export function ChatPanel() {
             onNavigateToParent={() => parentThread && setActiveThread(parentThread.id)}
             onClearThread={handleClearThread}
             onArchiveThread={handleArchiveThread}
+            showMinimap={showMinimap}
+            onToggleMinimap={() => {
+              setShowMinimap((v) => {
+                if (v) minimapManuallyClosedRef.current = true;
+                else minimapManuallyClosedRef.current = false;
+                return !v;
+              });
+            }}
           />
           {/* Read-only badge */}
           {isReadOnly && (
@@ -525,35 +561,10 @@ export function ChatPanel() {
               Read-only
             </span>
           )}
-          {/* Minimap toggle */}
-          <button
-            onClick={() => setShowMinimap((v) => !v)}
-            className={`absolute top-2 right-2 p-1 rounded border text-xs transition-colors ${
-              showMinimap
-                ? 'bg-primary/10 border-primary/30 text-primary'
-                : 'bg-background border-border text-muted-foreground hover:text-foreground hover:bg-muted'
-            }`}
-            title={showMinimap ? 'Hide thread map' : 'Show thread map'}
-            aria-label="Toggle thread minimap"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h8m-8 6h16" />
-              <circle cx="18" cy="12" r="2" strokeWidth={2} />
-            </svg>
-          </button>
         </div>
       )}
 
-      {/* Thread minimap panel */}
-      {showMinimap && (
-        <div className="border-b border-border bg-muted/20 flex-shrink-0">
-          <ThreadMinimap
-            threads={threads}
-            activeThreadId={activeThreadId}
-            onNavigate={setActiveThread}
-          />
-        </div>
-      )}
+      {/* Minimap rendered as floating widget inside messages area */}
 
       {/* Child pending question banner */}
       {activeChildQuestions.length > 0 && (
@@ -581,7 +592,7 @@ export function ChatPanel() {
       )}
 
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-4">
+      <div className="flex-1 overflow-y-auto p-6 space-y-4 relative">
         {messages.length === 0 && currentThreadNotifications.length === 0 && currentStreamingBlocks.length === 0 && (
           <div className="text-center text-muted-foreground py-12">
             <p className="text-lg">Start a conversation</p>
@@ -702,6 +713,15 @@ export function ChatPanel() {
         {/* Scroll anchors */}
         <div ref={scrollAnchorRef} className="h-1" />
         <div ref={messagesEndRef} />
+
+        {/* Floating minimap */}
+        {showMinimap && (
+          <ThreadMinimap
+            threads={threads}
+            activeThreadId={activeThreadId}
+            onNavigate={setActiveThread}
+          />
+        )}
       </div>
 
       {/* Input area */}

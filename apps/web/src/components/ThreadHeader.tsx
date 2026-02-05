@@ -9,6 +9,8 @@ interface ThreadHeaderProps {
   onNavigateToParent: () => void;
   onClearThread: () => void;
   onArchiveThread: () => void;
+  showMinimap?: boolean;
+  onToggleMinimap?: () => void;
 }
 
 export function ThreadHeader({
@@ -18,6 +20,8 @@ export function ThreadHeader({
   onNavigateToParent,
   onClearThread,
   onArchiveThread,
+  showMinimap,
+  onToggleMinimap,
 }: ThreadHeaderProps) {
   const [copiedResume, setCopiedResume] = useState(false);
 
@@ -90,9 +94,9 @@ export function ThreadHeader({
           </span>
         )}
 
-        {/* Token usage - expanded format */}
+        {/* Token usage - hidden on narrow screens */}
         {(usage || tokenInfo) && totalTokens > 0 && (
-          <div className="flex items-center gap-1 text-xs">
+          <div className="hidden sm:flex items-center gap-1 text-xs">
             {isActual && inputTokens != null && (
               <span
                 className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
@@ -129,15 +133,35 @@ export function ThreadHeader({
         )}
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1">
+        {/* Minimap toggle */}
+        {onToggleMinimap && (
+          <button
+            onClick={onToggleMinimap}
+            className={`p-1.5 rounded border text-xs transition-colors ${
+              showMinimap
+                ? 'bg-primary/10 border-primary/30 text-primary'
+                : 'border-border bg-background hover:bg-muted text-muted-foreground hover:text-foreground'
+            }`}
+            title={showMinimap ? 'Hide thread map' : 'Show thread map'}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <circle cx="6" cy="6" r="2" strokeWidth={2} />
+              <circle cx="18" cy="6" r="2" strokeWidth={2} />
+              <circle cx="12" cy="18" r="2" strokeWidth={2} />
+              <path strokeLinecap="round" strokeWidth={2} d="M6 8v6l6 4M18 8v6l-6 4" />
+            </svg>
+          </button>
+        )}
+
         {/* Resume command button */}
         {thread.sessionId && thread.workDir && (
           <button
             onClick={handleCopyResumeCommand}
-            className="text-xs px-2 py-1 rounded border border-border bg-background hover:bg-muted flex items-center gap-1"
-            title={`cd "${thread.workDir}" && claude --resume ${thread.sessionId}`}
+            className="p-1.5 rounded border border-border bg-background hover:bg-muted text-muted-foreground hover:text-foreground"
+            title={copiedResume ? 'Copied!' : `Resume in CLI: cd "${thread.workDir}" && claude --resume ${thread.sessionId}`}
           >
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -145,26 +169,27 @@ export function ThreadHeader({
                 d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
               />
             </svg>
-            {copiedResume ? 'Copied!' : 'Resume in CLI'}
           </button>
         )}
 
         {/* Clear thread button */}
         <button
           onClick={onClearThread}
-          className="text-xs px-2 py-1 rounded border border-border bg-background hover:bg-muted text-muted-foreground hover:text-foreground"
+          className="p-1.5 rounded border border-border bg-background hover:bg-muted text-muted-foreground hover:text-foreground"
           title="Clear all messages"
         >
-          Clear
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
         </button>
 
         {/* Archive thread button */}
         <button
           onClick={onArchiveThread}
-          className="text-xs px-2 py-1 rounded border border-border bg-background hover:bg-muted text-muted-foreground hover:text-foreground flex items-center gap-1"
+          className="p-1.5 rounded border border-border bg-background hover:bg-muted text-muted-foreground hover:text-foreground"
           title="Archive thread"
         >
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -172,7 +197,6 @@ export function ThreadHeader({
               d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
             />
           </svg>
-          Archive
         </button>
       </div>
     </div>
