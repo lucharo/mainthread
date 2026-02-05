@@ -304,6 +304,18 @@ export function ChatPanel() {
     return items.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   }, [messages, currentThreadNotifications, spawnedThreadIdSet]);
 
+  // Find the last assistant message index for skipContentBlocks logic
+  // This prevents duplication when streaming blocks and saved content_blocks overlap
+  const lastAssistantIdx = useMemo(() => {
+    for (let i = timelineItems.length - 1; i >= 0; i--) {
+      const item = timelineItems[i];
+      if (item.type === 'message' && item.data.role === 'assistant') {
+        return i;
+      }
+    }
+    return -1;
+  }, [timelineItems]);
+
   // Smart auto-scroll
   useEffect(() => {
     if (isAtBottom && currentStreamingBlocks.length > 0) {
@@ -510,9 +522,15 @@ export function ChatPanel() {
         )}
 
         {/* Render messages and notifications chronologically */}
-        {timelineItems.map((item) =>
-          item.type === 'message' ? (
-            <MessageBubble key={item.data.id} message={item.data} />
+        {timelineItems.map((item, idx) => {
+          // Skip content_blocks for the streaming message to avoid duplicates with streamingBlocks
+          const isLastAssistantMessage = item.type === 'message' &&
+            item.data.role === 'assistant' &&
+            idx === lastAssistantIdx;
+          const shouldSkipContentBlocks = isLastAssistantMessage && currentStreamingBlocks.length > 0;
+
+          return item.type === 'message' ? (
+            <MessageBubble key={item.data.id} message={item.data} skipContentBlocks={shouldSkipContentBlocks} />
           ) : item.data.status ? (
             <SubthreadCompletionNotification
               key={`completion-${item.data.threadId}-${item.timestamp}`}
@@ -525,8 +543,8 @@ export function ChatPanel() {
               notification={item.data}
               onNavigate={(id) => setActiveThread(id)}
             />
-          )
-        )}
+          );
+        })}
 
         {/* Streaming blocks - grouped for accumulating tool display */}
         {activeThreadId && groupStreamingBlocks(currentStreamingBlocks).map((group) => {

@@ -38,6 +38,7 @@ from claude_agent_sdk.types import (
     ToolUseBlock,
 )
 
+from mainthread.agents.client_cache import get_client_cache
 from mainthread.agents.registry import get_registry
 from mainthread.db import get_thread_depth
 from mainthread.agents.tools import (
@@ -588,27 +589,36 @@ async def run_agent(
 
     logger.debug(f"[AGENT] Starting agent for thread {thread_id}, model: {model}")
 
-    options = ClaudeAgentOptions(
-        system_prompt=system_prompt,
-        allowed_tools=allowed_tools,
-        mcp_servers=mcp_servers if mcp_servers else None,
-        resume=thread.get("sessionId"),
-        cwd=thread.get("workDir") or os.getcwd(),
-        permission_mode=permission,
-        model=model,
-        can_use_tool=permission_handler,
-        settings=settings_json,
-        hooks={"SubagentStop": [subagent_stop_hook]},
-        include_partial_messages=True,
-    )
+    # Use client cache for reduced subprocess spawn latency
+    cache = get_client_cache()
+
+    def options_factory() -> ClaudeAgentOptions:
+        return ClaudeAgentOptions(
+            system_prompt=system_prompt,
+            allowed_tools=allowed_tools,
+            mcp_servers=mcp_servers if mcp_servers else None,
+            resume=thread.get("sessionId"),
+            cwd=thread.get("workDir") or os.getcwd(),
+            permission_mode=permission,
+            model=model,
+            can_use_tool=permission_handler,
+            settings=settings_json,
+            hooks={"SubagentStop": [subagent_stop_hook]},
+            include_partial_messages=True,
+        )
 
     collected_content: list[str] = []
     collected_tool_calls: list[dict[str, Any]] = []
     final_session_id: str | None = None
     received_streaming_text = False
+    received_streaming_thinking = False  # Track if thinking was streamed to avoid duplicates
 
     try:
-        async with ClaudeSDKClient(options=options) as client:
+        async with cache.get_client(
+            thread_id=thread_id,
+            session_id=thread.get("sessionId"),
+            options_factory=options_factory,
+        ) as client:
             # Build query content - text only or multimodal with images
             if images:
                 # Build multimodal content with images and text
@@ -640,11 +650,13 @@ async def run_agent(
                                 yield AgentMessage(type="text", content=block.text)
 
                         elif isinstance(block, ThinkingBlock):
-                            yield AgentMessage(
-                                type="thinking",
-                                content=block.thinking,
-                                metadata={"signature": block.signature},
-                            )
+                            # Skip if already emitted via StreamEvent thinking_delta
+                            if not received_streaming_thinking:
+                                yield AgentMessage(
+                                    type="thinking",
+                                    content=block.thinking,
+                                    metadata={"signature": block.signature},
+                                )
 
                         elif isinstance(block, ToolUseBlock):
                             # Check if already emitted via StreamEvent
@@ -741,6 +753,7 @@ async def run_agent(
                         if delta_type == "thinking_delta":
                             thinking_content = delta.get("thinking", "")
                             if thinking_content:
+                                received_streaming_thinking = True
                                 yield AgentMessage(
                                     type="thinking",
                                     content=thinking_content,

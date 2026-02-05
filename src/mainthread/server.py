@@ -35,6 +35,7 @@ from mainthread.agents import (
     run_agent,
     set_pending_answer,
 )
+from mainthread.agents.client_cache import get_client_cache, reset_client_cache
 from mainthread.agents.task_registry import (
     clear_all_tasks,
     register_task,
@@ -125,6 +126,11 @@ async def lifespan(app: FastAPI):
     sse_event_store.clear()
     clear_all_tasks()
     reset_agent_state()
+    reset_client_cache()
+
+    # Initialize client cache
+    cache = get_client_cache()
+    await cache.startup()
 
     # Reset any stale pending threads to active (from previous server instance)
     try:
@@ -139,11 +145,17 @@ async def lifespan(app: FastAPI):
     logger.info("MainThread API started - asyncio state reset")
     yield
     # Shutdown: cleanup
+    logger.info("MainThread API shutting down")
+
+    # Shutdown client cache first (close subprocess connections)
+    cache = get_client_cache()
+    await cache.shutdown()
+
     thread_subscribers.clear()
     _processing_notifications.clear()
     sse_event_store.clear()
     clear_all_tasks()
-    logger.info("MainThread API shutting down")
+    logger.info("MainThread API shutdown complete")
 
 
 app = FastAPI(
@@ -599,6 +611,64 @@ async def read_thread_for_agent(thread_id: str, limit: int = 50) -> dict[str, An
     return await asyncio.to_thread(get_thread_messages_formatted, thread_id, limit)
 
 
+async def notify_parent_of_subthread_completion(
+    thread: dict[str, Any],
+    thread_id: str,
+    final_status: str,
+) -> None:
+    """Notify parent thread when a subthread completes.
+
+    If the subthread finished with 'active' status (agent didn't call SignalStatus),
+    auto-signal 'done' to the parent. This ensures parents always get notified.
+
+    Args:
+        thread: The subthread's thread dict (must have parentId)
+        thread_id: The subthread's ID
+        final_status: The final status from the agent processor
+    """
+    parent_id = thread.get("parentId")
+    if not parent_id:
+        return
+
+    parent_thread = get_thread(parent_id)
+
+    # Determine effective status for notification
+    # "active" means agent finished without explicit SignalStatus - treat as "done"
+    effective_status = final_status
+    if effective_status == "active":
+        effective_status = "done"
+        logger.info(f"Sub-thread {thread_id} finished without SignalStatus, auto-signaling 'done' to parent")
+        # Also update the thread's stored status to "done"
+        update_thread_status(thread_id, "done")
+
+    # Broadcast status update to frontend
+    await broadcast_to_thread(parent_id, {
+        "type": "subthread_status",
+        "data": {
+            "threadId": thread_id,
+            "status": effective_status,
+            "title": thread["title"],
+        },
+    })
+
+    # Inject user message into parent thread for agent visibility (user role so agent responds)
+    status_msg = "completed" if effective_status == "done" else "needs attention"
+    notification_content = f'[notification] Sub-thread "{thread["title"]}" {status_msg}.'
+    user_notification = add_message(parent_id, "user", notification_content)
+
+    # Broadcast the notification to parent thread subscribers
+    await broadcast_to_thread(parent_id, {
+        "type": "message",
+        "data": {"message": user_notification},
+    })
+
+    # Only trigger parent thread agent if auto-react is enabled
+    if parent_thread and parent_thread.get("autoReact", True):
+        asyncio.create_task(run_parent_thread_notification(parent_id, notification_content))
+    else:
+        logger.info(f"Skipping auto-react for parent thread {parent_id} (disabled)")
+
+
 async def run_parent_thread_notification(thread_id: str, notification_content: str) -> None:
     """Run agent on parent thread to process a sub-thread notification.
 
@@ -703,33 +773,8 @@ async def run_thread_for_agent(thread_id: str, message: str) -> None:
         if processor.final_session_id:
             update_thread_session(thread_id, processor.final_session_id)
 
-        # Handle sub-thread completion signals
-        if thread.get("parentId") and processor.final_status in ("needs_attention", "done"):
-            parent_id = thread["parentId"]
-            parent_thread = get_thread(parent_id)
-            # Broadcast status update to frontend
-            await broadcast_to_thread(parent_id, {
-                "type": "subthread_status",
-                "data": {
-                    "threadId": thread_id,
-                    "status": processor.final_status,
-                    "title": thread["title"],
-                },
-            })
-            # Inject user message into parent thread for agent visibility (user role so agent responds)
-            status_msg = "completed" if processor.final_status == "done" else "needs attention"
-            notification_content = f'[notification] Sub-thread "{thread["title"]}" {status_msg}.'
-            user_notification = add_message(parent_id, "user", notification_content)
-            # Broadcast the notification to parent thread subscribers
-            await broadcast_to_thread(parent_id, {
-                "type": "message",
-                "data": {"message": user_notification},
-            })
-            # Only trigger parent thread agent if auto-react is enabled
-            if parent_thread and parent_thread.get("autoReact", True):
-                asyncio.create_task(run_parent_thread_notification(parent_id, notification_content))
-            else:
-                logger.info(f"Skipping auto-react for parent thread {parent_id} (disabled)")
+        # Handle sub-thread completion signals (auto-signal if agent didn't call SignalStatus)
+        await notify_parent_of_subthread_completion(thread, thread_id, processor.final_status)
 
         # Notify subscribers of completion
         await broadcast_to_thread(thread_id, {
@@ -1400,6 +1445,76 @@ async def get_metrics() -> dict[str, Any]:
     }
 
 
+def _collect_system_stats_sync() -> dict[str, Any]:
+    """Collect system stats synchronously (runs in thread pool to avoid blocking)."""
+    import psutil
+
+    # CPU (interval=None uses cached value from background thread)
+    cpu_percent = psutil.cpu_percent(interval=None)
+
+    # Memory
+    mem = psutil.virtual_memory()
+
+    # Claude processes (subprocess count)
+    # Claude Agent SDK spawns "claude" CLI processes
+    # We look for processes where the binary/first arg is "claude"
+    claude_processes: list[dict[str, Any]] = []
+    for proc in psutil.process_iter(["pid", "name", "cmdline", "memory_percent", "cpu_percent"]):
+        try:
+            cmdline = proc.info.get("cmdline") or []
+            if not cmdline:
+                continue
+
+            # Check if the first argument (binary) is "claude" or ends with "/claude"
+            # This excludes shells that just have "claude" in their history/context
+            first_arg = cmdline[0] if cmdline else ""
+            is_claude_binary = first_arg == "claude" or first_arg.endswith("/claude")
+
+            # Exclude Chrome extension processes
+            cmdline_str = " ".join(cmdline).lower()
+            is_chrome_extension = "chrome" in cmdline_str or "native-host" in cmdline_str
+
+            if is_claude_binary and not is_chrome_extension:
+                claude_processes.append({
+                    "pid": proc.info["pid"],
+                    "name": proc.info.get("name", "unknown"),
+                    "memory_percent": proc.info["memory_percent"],
+                    "cpu_percent": proc.info["cpu_percent"],
+                })
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+
+    return {
+        "cpu_percent": cpu_percent,
+        "memory_percent": mem.percent,
+        "memory_used_gb": round(mem.used / (1024**3), 2),
+        "memory_total_gb": round(mem.total / (1024**3), 2),
+        "claude_process_count": len(claude_processes),
+        "claude_processes": claude_processes,
+    }
+
+
+@app.get("/api/stats")
+async def get_system_stats() -> dict[str, Any]:
+    """Get system resource usage and client cache stats.
+
+    Returns CPU/memory usage, Claude process count, and cache statistics.
+    Useful for monitoring system health during agent execution.
+    """
+    try:
+        import psutil  # noqa: F401 - check if available
+    except ImportError:
+        return {
+            "error": "psutil not installed",
+            "cache": get_client_cache().stats,
+        }
+
+    # Run process iteration in thread pool to avoid blocking event loop
+    stats = await asyncio.to_thread(_collect_system_stats_sync)
+    stats["cache"] = get_client_cache().stats
+    return stats
+
+
 @app.get("/api/time")
 async def get_current_time() -> dict[str, Any]:
     """Get the current server time in UTC.
@@ -1682,33 +1797,8 @@ async def send_message(thread_id: str, request: SendMessageRequest) -> dict[str,
         if processor.final_session_id:
             update_thread_session(thread_id, processor.final_session_id)
 
-        # Handle sub-thread completion signals
-        if thread.get("parentId") and processor.final_status in ("needs_attention", "done"):
-            parent_id = thread["parentId"]
-            parent_thread = get_thread(parent_id)
-            # Notify parent thread of sub-thread status change
-            await broadcast_to_thread(parent_id, {
-                "type": "subthread_status",
-                "data": {
-                    "threadId": thread_id,
-                    "status": processor.final_status,
-                    "title": thread["title"],
-                },
-            })
-            # Inject user message into parent thread for agent visibility (user role so agent responds)
-            status_msg = "completed" if processor.final_status == "done" else "needs attention"
-            notification_content = f'[notification] Sub-thread "{thread["title"]}" {status_msg}.'
-            user_notification = add_message(parent_id, "user", notification_content)
-            # Broadcast the notification to parent thread subscribers
-            await broadcast_to_thread(parent_id, {
-                "type": "message",
-                "data": {"message": user_notification},
-            })
-            # Only trigger parent thread agent if auto-react is enabled
-            if parent_thread and parent_thread.get("autoReact", True):
-                asyncio.create_task(run_parent_thread_notification(parent_id, notification_content))
-            else:
-                logger.info(f"Skipping auto-react for parent thread {parent_id} (disabled)")
+        # Handle sub-thread completion signals (auto-signal if agent didn't call SignalStatus)
+        await notify_parent_of_subthread_completion(thread, thread_id, processor.final_status)
 
         # Notify subscribers of completion
         await broadcast_to_thread(thread_id, {

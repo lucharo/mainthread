@@ -771,6 +771,13 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       updateLastEventId(event);
       const data = safeJsonParse<{ message?: Message; status?: ThreadStatus }>(event.data, {});
       if (data.message) {
+        // IMPORTANT: Clear streaming blocks BEFORE adding the message to prevent duplication
+        // The message contains the same content as streaming blocks (content_blocks),
+        // so we must clear streaming first to avoid showing both simultaneously
+        if (data.message.role === 'assistant') {
+          get().clearStreamingBlocks(threadId);
+        }
+
         // Update thread with new message (with duplicate check)
         set((state) => {
           const thread = state.threads.find((t) => t.id === threadId);

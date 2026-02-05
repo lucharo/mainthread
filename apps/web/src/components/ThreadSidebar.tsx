@@ -7,6 +7,7 @@ import {
 } from '../store/threadStore';
 import { useSettingsStore } from '../store/settingsStore';
 import { CreateThreadModal } from './CreateThreadModal';
+import { SystemStats } from './SystemStats';
 import { Toggle } from './Toggle';
 
 // Simplified status colors: Green (ready), Red (stopped), Orange (processing)
@@ -20,8 +21,9 @@ const STATUS_COLORS: Record<ThreadStatus, { bg: string; label: string }> = {
 
 function StatusDot({ status }: { status: ThreadStatus }) {
   const config = STATUS_COLORS[status];
-  // Blink when thread is actively processing (pending or active)
-  const isProcessing = status === 'pending' || status === 'active';
+  // Only blink when thread is pending (actively processing), not when active (idle)
+  // This prevents the animation from abruptly stopping when transitioning pending → active → done
+  const isProcessing = status === 'pending';
   return (
     <span
       className={`w-2 h-2 rounded-full ${config.bg} flex-shrink-0 ${isProcessing ? 'animate-neon-blink' : ''}`}
@@ -299,6 +301,9 @@ export function ThreadSidebar() {
           </div>
         )}
       </div>
+
+      {/* System stats */}
+      <SystemStats />
 
       {/* Footer with toggle and reset */}
       <div className="p-3 border-t border-border space-y-2 flex-shrink-0">

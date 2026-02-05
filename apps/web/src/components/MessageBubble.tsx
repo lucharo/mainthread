@@ -285,9 +285,11 @@ function GroupedBlockRenderer({ group }: { group: BlockGroup }) {
 
 interface MessageBubbleProps {
   message: Message;
+  /** Skip rendering content_blocks (used when streaming blocks are active to avoid duplicates) */
+  skipContentBlocks?: boolean;
 }
 
-export const MessageBubble = memo(function MessageBubble({ message }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({ message, skipContentBlocks = false }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
 
@@ -319,8 +321,8 @@ export const MessageBubble = memo(function MessageBubble({ message }: MessageBub
     return null;
   }
 
-  // Render content blocks if available
-  if (!isUser && contentBlocks && contentBlocks.length > 0) {
+  // Render content blocks if available (skip if streaming is active to avoid duplicates)
+  if (!isUser && contentBlocks && contentBlocks.length > 0 && !skipContentBlocks) {
     const groupedBlocks = groupConsecutiveBlocks(contentBlocks);
     return (
       <div className="animate-fade-in space-y-2">
