@@ -52,8 +52,8 @@ Sub-threads have: `SignalStatus`
 
 Before committing:
 1. Run `uv run pytest` - all tests must pass
-2. Run `cd apps/web && bun run build` - frontend must build
-3. Check for TypeScript errors in frontend
+2. Run `cd apps/web && bun run test` - frontend tests must pass
+3. Run `cd apps/web && bun run build` - frontend must build
 
 ## Architecture Notes
 
