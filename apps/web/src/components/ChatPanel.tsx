@@ -577,8 +577,9 @@ export function ChatPanel() {
         </div>
       )}
 
-      {/* Messages area */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-4 relative">
+      {/* Messages area wrapper - relative for minimap positioning */}
+      <div className="flex-1 min-h-0 relative">
+      <div className="h-full overflow-y-auto p-6 space-y-4">
         {messages.length === 0 && currentThreadNotifications.length === 0 && currentStreamingBlocks.length === 0 && activeThread?.status !== 'pending' && activeThread?.status !== 'running' && (
           <div className="text-center text-muted-foreground py-12">
             <p className="text-lg">Start a conversation</p>
@@ -702,7 +703,7 @@ export function ChatPanel() {
 
       </div>
 
-      {/* Floating minimap - fixed to viewport bottom-right */}
+      {/* Floating minimap - positioned above input area */}
       {showMinimap && (
         <ThreadMinimap
           threads={threads}
@@ -710,6 +711,7 @@ export function ChatPanel() {
           onNavigate={setActiveThread}
         />
       )}
+      </div>
 
       {/* Experimental nesting indicator */}
       {activeThread && !activeThread.parentId && activeThread.allowNestedSubthreads && (
