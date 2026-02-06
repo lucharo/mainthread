@@ -331,7 +331,8 @@ def validate_work_dir(work_dir: str | None) -> str:
     resolved = Path(work_dir).resolve()
 
     if not resolved.exists():
-        raise ValueError(f"Working directory does not exist: {work_dir}")
+        resolved.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Auto-created working directory: {resolved}")
 
     if not resolved.is_dir():
         raise ValueError(f"Path is not a directory: {work_dir}")
