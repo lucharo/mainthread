@@ -115,7 +115,10 @@ async def _periodic_event_cleanup() -> None:
 
 
 async def _stuck_thread_watchdog() -> None:
-    """Periodically check for threads stuck in pending/running status and recover them.
+    """Periodically check for threads stuck in running status and recover them.
+
+    Only checks 'running' threads - not 'pending', which may legitimately be
+    waiting for the agent semaphore under high concurrency.
 
     Instead of just logging, this watchdog actively recovers stuck threads by:
     1. Setting their status to 'needs_attention'
@@ -129,7 +132,7 @@ async def _stuck_thread_watchdog() -> None:
             all_threads = get_all_threads(include_archived=False)
             for thread in all_threads:
                 status = thread.get("status")
-                if status not in ("pending", "running"):
+                if status != "running":
                     continue
                 updated_at = thread.get("updatedAt") or thread.get("createdAt", "")
                 if not updated_at:
@@ -236,6 +239,8 @@ async def lifespan(app: FastAPI):
 
     # Start periodic event cleanup (remove events older than 24h)
     global _event_cleanup_task
+    if _event_cleanup_task:
+        _event_cleanup_task.cancel()
     _event_cleanup_task = asyncio.create_task(_periodic_event_cleanup())
 
     logger.info("MainThread API started - SSE events persisted to SQLite")
@@ -642,10 +647,10 @@ async def run_agent_with_retry(
                 f"[system] Previous execution was interrupted ({last_error}). "
                 f"Automatically retrying with session resumption (attempt {attempt + 1})."
             )
-            add_message(thread_id, "system", retry_note)
+            retry_msg = add_message(thread_id, "system", retry_note)
             await broadcast_to_thread(thread_id, {
                 "type": "message",
-                "data": {"message": {"role": "system", "content": retry_note}},
+                "data": {"message": retry_msg},
             })
 
             # The continuation message tells the agent to pick up where it left off
@@ -704,6 +709,9 @@ async def run_agent_with_retry(
                 # Save session_id if we got one before the crash
                 if processor.final_session_id:
                     update_thread_session(thread_id, processor.final_session_id)
+                # Touch updatedAt to reset the watchdog timer so it doesn't
+                # fire during retry attempts and send premature parent notifications
+                update_thread_status(thread_id, "running")
                 continue
             else:
                 # Out of retries
@@ -2298,6 +2306,10 @@ async def send_message(thread_id: str, request: SendMessageRequest) -> dict[str,
             "type": "error",
             "data": {"error": f"Request timed out after {AGENT_TIMEOUT_SECONDS // 60} minutes"},
         })
+        # Notify parent if this is a sub-thread (consistent with run_thread_for_agent)
+        thread = get_thread(thread_id)
+        if thread and thread.get("parentId"):
+            await _notify_parent_on_subthread_error(thread, thread_id, f"timed out after {AGENT_TIMEOUT_SECONDS // 60} minutes")
         raise HTTPException(status_code=504, detail="Agent execution timed out")
 
     except Exception as e:
@@ -2308,6 +2320,10 @@ async def send_message(thread_id: str, request: SendMessageRequest) -> dict[str,
             "type": "error",
             "data": {"error": error_msg},
         })
+        # Notify parent if this is a sub-thread (consistent with run_thread_for_agent)
+        thread = get_thread(thread_id)
+        if thread and thread.get("parentId"):
+            await _notify_parent_on_subthread_error(thread, thread_id, error_msg)
         raise HTTPException(status_code=500, detail=error_msg)
 
     finally:
