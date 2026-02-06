@@ -334,7 +334,7 @@ def validate_work_dir(work_dir: str | None) -> str:
         # Only auto-create under home dir or /tmp to prevent arbitrary path creation
         home = Path.home()
         safe_roots = (home, Path("/tmp"), Path("/private/tmp"))
-        if any(str(resolved).startswith(str(root)) for root in safe_roots):
+        if any(resolved.is_relative_to(root) for root in safe_roots):
             resolved.mkdir(parents=True, exist_ok=True)
             logger.info(f"Auto-created working directory: {resolved}")
         else:

@@ -397,8 +397,13 @@ export const MessageBubble = memo(function MessageBubble({ message, skipContentB
     return null;
   }
 
-  // Render content blocks if available (skip if streaming is active to avoid duplicates)
-  if (!isUser && contentBlocks && contentBlocks.length > 0 && !skipContentBlocks) {
+  // Hide the streaming placeholder entirely - streaming blocks render separately
+  if (skipContentBlocks) {
+    return null;
+  }
+
+  // Render content blocks if available
+  if (!isUser && contentBlocks && contentBlocks.length > 0) {
     const groupedBlocks = groupConsecutiveBlocks(contentBlocks);
     // Find the last group that contains tool_use blocks
     let lastToolGroupIndex = -1;
