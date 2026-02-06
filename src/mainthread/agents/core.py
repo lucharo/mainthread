@@ -431,8 +431,8 @@ async def run_agent(
     user_message: str,
     question_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     images: list[dict[str, str]] | None = None,
-    allow_nested_subthreads: bool = False,
-    max_thread_depth: int = 1,
+    allow_nested_subthreads: bool = True,
+    max_thread_depth: int = 3,
 ) -> AsyncIterator[AgentMessage]:
     """Run the Claude agent for a thread, yielding messages as they stream.
 

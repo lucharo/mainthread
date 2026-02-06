@@ -839,8 +839,8 @@ async def _notification_worker(thread_id: str) -> None:
                         await processor.process_message(msg)
 
             await processor.finalize()
+            processor._save_current_state()  # Persist finalize changes (tool completions)
 
-            # Message already saved incrementally by processor
             assistant_message = processor._message
 
             # Update thread status and session
@@ -922,8 +922,8 @@ async def run_thread_for_agent(thread_id: str, message: str, skip_add_message: b
                     await processor.process_message(msg)
 
         await processor.finalize()
+        processor._save_current_state()  # Persist finalize changes (tool completions)
 
-        # Message already saved incrementally by processor
         assistant_message = processor._message
 
         # Update thread status and session
@@ -1120,8 +1120,8 @@ class SendMessageRequest(BaseModel):
     images: list[ImageAttachment] | None = Field(None, max_length=10, description="Optional image attachments (max 10)")
     file_references: list[str] | None = Field(None, max_length=20, description="Optional file paths to include as context")
     # Experimental settings for nested sub-threads
-    allow_nested_subthreads: bool = Field(False, description="Allow sub-threads to spawn their own sub-threads")
-    max_thread_depth: int = Field(1, ge=1, le=5, description="Maximum nesting depth (1 = only main thread can spawn)")
+    allow_nested_subthreads: bool = Field(True, description="Allow sub-threads to spawn their own sub-threads")
+    max_thread_depth: int = Field(3, ge=1, le=5, description="Maximum nesting depth for thread spawning")
 
 
 class UpdateStatusRequest(BaseModel):
@@ -2037,8 +2037,8 @@ async def send_message(thread_id: str, request: SendMessageRequest) -> dict[str,
                     await processor.process_message(msg)
 
         await processor.finalize()
+        processor._save_current_state()  # Persist finalize changes (tool completions)
 
-        # Message already saved incrementally by processor
         assistant_message = processor._message
 
         # Update thread status and session

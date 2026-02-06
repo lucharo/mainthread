@@ -963,8 +963,9 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
             if (retryMatch && retryMatch.id) {
               // Found it on retry - add to spawnedThreadIds mapping
               get().setSpawnedThreadId(retryMatch.id, data.thread!.id);
-            } else {
-              // Still no match after delay - show notification
+            } else if (data.thread!.parentId !== threadId) {
+              // No match and not a direct child - show notification
+              // (SpawnThread-created children get navigation via ToolHistoryBlock)
               get().addThreadNotification(threadId, {
                 threadId: data.thread!.id,
                 threadTitle: data.thread!.title,
@@ -973,12 +974,8 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
             }
           }, 200);
         } else {
-          // Matched immediately - add notification
-          get().addThreadNotification(threadId, {
-            threadId: data.thread!.id,
-            threadTitle: data.thread!.title,
-            timestamp: new Date().toISOString(),
-          });
+          // Matched immediately - no notification needed
+          // (SpawnThread-created threads get navigation via ToolHistoryBlock's ">" button)
         }
         // Auto-subscribe to the new child thread to accumulate its streaming blocks
         // This ensures we don't miss any content when the subthread starts processing
