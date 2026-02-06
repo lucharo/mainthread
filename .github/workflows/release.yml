@@ -22,7 +22,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
 
       - name: Install backend dependencies
-        run: uv sync --group dev
+        run: uv sync --extra dev
 
       - name: Run backend tests
         run: uv run pytest
