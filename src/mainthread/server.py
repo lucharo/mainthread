@@ -248,25 +248,32 @@ async def lifespan(app: FastAPI):
     # Shutdown: cleanup
     logger.info("MainThread API shutting down")
 
-    # Cancel watchdog
+    # Gather all background tasks for clean cancellation
+    tasks_to_cancel: list[asyncio.Task] = []
     if _watchdog_task:
         _watchdog_task.cancel()
+        tasks_to_cancel.append(_watchdog_task)
         _watchdog_task = None
+    if _event_cleanup_task:
+        _event_cleanup_task.cancel()
+        tasks_to_cancel.append(_event_cleanup_task)
+        _event_cleanup_task = None
 
     thread_subscribers.clear()
     # Cancel notification workers
     worker_count = len(_notification_workers)
     for tid, worker in _notification_workers.items():
         worker.cancel()
+        tasks_to_cancel.append(worker)
         logger.debug(f"Cancelled notification worker for thread {tid}")
     _notification_queues.clear()
     _notification_workers.clear()
     if worker_count:
         logger.info(f"Cancelled {worker_count} notification workers")
-    # Cancel event cleanup task
-    if _event_cleanup_task:
-        _event_cleanup_task.cancel()
-        _event_cleanup_task = None
+
+    # Await all cancelled tasks to ensure clean shutdown
+    if tasks_to_cancel:
+        await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
     await clear_all_tasks()
     logger.info("MainThread API shutdown complete")
 
@@ -1138,7 +1145,6 @@ async def run_thread_for_agent(thread_id: str, message: str, skip_add_message: b
             "data": {"error": f"Request timed out after {AGENT_TIMEOUT_SECONDS // 60} minutes"},
         })
         # Notify parent so it knows the sub-thread failed
-        thread = get_thread(thread_id)
         if thread:
             await _notify_parent_on_subthread_error(thread, thread_id, f"timed out after {AGENT_TIMEOUT_SECONDS // 60} minutes")
 
@@ -1151,7 +1157,6 @@ async def run_thread_for_agent(thread_id: str, message: str, skip_add_message: b
             "data": {"error": error_msg},
         })
         # Notify parent so it knows the sub-thread failed
-        thread = get_thread(thread_id)
         if thread:
             await _notify_parent_on_subthread_error(thread, thread_id, error_msg)
 

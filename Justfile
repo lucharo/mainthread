@@ -26,6 +26,9 @@ dev-frontend:
     cd apps/web && bun run dev
 
 # Run both backend and frontend in parallel (with cleanup on exit)
+# NOTE: This uses a bash trap which requires an interactive terminal.
+# It won't work when run in the background (e.g. from Claude Code).
+# For background/non-interactive use, run `just serve` and `just dev-frontend` separately.
 dev:
     #!/usr/bin/env bash
     trap 'kill $(jobs -p) 2>/dev/null' EXIT

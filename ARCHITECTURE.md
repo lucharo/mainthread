@@ -19,7 +19,7 @@
                                │ HTTP
                                ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│  FastAPI Backend (server.py)                        :3031        │
+│  FastAPI Backend (server.py)                        :2026        │
 │                                                                  │
 │  ┌────────────────────────────────────────────────────────────┐  │
 │  │ SSE Endpoint  /api/threads/{id}/stream                     │  │
@@ -76,7 +76,7 @@
 │                   ~/.mainthread/mainthread.db                     │
 │                                                                  │
 │  ┌────────────┐  ┌────────────┐  ┌─────────────────────────┐    │
-│  │  threads    │  │  messages   │  │  events (NEW)           │    │
+│  │  threads    │  │  messages   │  │  events                 │    │
 │  │            │  │            │  │                         │    │
 │  │ id         │  │ id         │  │ seq_id (auto-increment) │    │
 │  │ title      │  │ thread_id  │  │ thread_id               │    │

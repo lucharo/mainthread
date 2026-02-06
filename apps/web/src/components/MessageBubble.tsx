@@ -496,5 +496,6 @@ export function StreamingToolBlock({
     );
   }
 
-  return <ToolBlock name={name} input={input} isComplete={isComplete} isCollapsed={isCollapsed} isError={isError} />;
+  const shouldStartCollapsed = !hasExpandableContent(name, input);
+  return <ToolBlock name={name} input={input} isComplete={isComplete} isCollapsed={isCollapsed} isError={isError} startCollapsed={shouldStartCollapsed} />;
 }

@@ -54,7 +54,6 @@ def get_db() -> Iterator[sqlite3.Connection]:
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
     try:
         yield conn
         conn.commit()
@@ -68,6 +67,8 @@ def get_db() -> Iterator[sqlite3.Connection]:
 def init_database() -> None:
     """Initialize database schema."""
     with get_db() as conn:
+        # Enable WAL mode once at init (persists across connections)
+        conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS threads (
                 id TEXT PRIMARY KEY,
