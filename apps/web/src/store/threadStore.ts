@@ -108,6 +108,7 @@ interface ThreadState {
   getSpawnedThreadId: (toolUseId: string) => string | undefined;
   setChildPendingQuestion: (parentThreadId: string, question: ChildPendingQuestion) => void;
   clearChildPendingQuestion: (parentThreadId: string, childThreadId: string) => void;
+  reconcileThread: (threadId: string) => Promise<void>;
 }
 
 const API_BASE = '/api';
@@ -630,19 +631,28 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
 
     eventSource.addEventListener('connected', () => {
       console.log(`[SSE] Connected to thread ${threadId}`);
+      const connection = get().sseConnections[threadId];
+      const wasReconnect = (connection?.reconnectAttempts ?? 0) > 0;
+
       // Reset reconnect attempts on successful connection
       set((state) => {
-        const connection = state.sseConnections[threadId];
-        if (connection) {
+        const conn = state.sseConnections[threadId];
+        if (conn) {
           return {
             sseConnections: {
               ...state.sseConnections,
-              [threadId]: { ...connection, reconnectAttempts: 0, reconnectTimeoutId: undefined },
+              [threadId]: { ...conn, reconnectAttempts: 0, reconnectTimeoutId: undefined },
             },
           };
         }
         return state;
       });
+
+      // On reconnection, reconcile with DB to catch missed events (e.g. complete)
+      if (wasReconnect) {
+        console.log(`[SSE] Reconnected to thread ${threadId}, reconciling with DB`);
+        get().reconcileThread(threadId);
+      }
     });
 
     eventSource.addEventListener('text_delta', (event) => {
@@ -659,6 +669,8 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
             set((state) => ({
               lastSeenEventId: { ...state.lastSeenEventId, [threadId]: '0' },
             }));
+            // Server restart means in-memory event store is gone - reconcile from DB
+            get().reconcileThread(threadId);
           } else if (currentNum <= lastSeenNum) {
             return; // Skip already-seen event
           }
@@ -689,6 +701,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
             set((state) => ({
               lastSeenEventId: { ...state.lastSeenEventId, [threadId]: '0' },
             }));
+            get().reconcileThread(threadId);
           } else if (currentNum <= lastSeenNum) {
             return; // Skip already-seen event
           }
@@ -827,11 +840,11 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     eventSource.addEventListener('stopped', (event) => {
       updateLastEventId(event);
       console.log('[SSE] stopped received for thread', threadId);
-      // FIFO auto-completion handles spinners during streaming. clearStreamingBlocks
-      // below removes all blocks anyway, so force-completing here is unnecessary.
-      // Clear streaming blocks and update status
+      // Clear streaming blocks and update status, then reconcile from DB
+      // to recover any partial content saved during streaming
       get().clearStreamingBlocks(threadId);
       get().updateThreadStatus(threadId, 'active');
+      get().reconcileThread(threadId);
     });
 
     eventSource.addEventListener('config_change', (event) => {
@@ -1634,5 +1647,49 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         },
       };
     });
+  },
+
+  reconcileThread: async (threadId) => {
+    try {
+      const res = await fetch(`${API_BASE}/threads/${threadId}`);
+      if (!res.ok) return;
+      const dbThread = await res.json();
+
+      set((state) => {
+        const existingThread = state.threads.find((t) => t.id === threadId);
+        if (!existingThread) return state;
+
+        // Preserve in-memory-only fields that aren't in DB
+        const merged = {
+          ...dbThread,
+          lastUsage: existingThread.lastUsage,
+          lastCostUsd: existingThread.lastCostUsd,
+        };
+
+        // If DB says thread is done/active (not streaming), clear streaming blocks
+        const shouldClearStreaming = dbThread.status === 'done' || (
+          dbThread.status === 'active' && dbThread.messages?.length > existingThread.messages.length
+        );
+
+        const newStreamingBlocks = shouldClearStreaming
+          ? (() => { const { [threadId]: _, ...rest } = state.streamingBlocks; return rest; })()
+          : state.streamingBlocks;
+        const newExpandedId = shouldClearStreaming
+          ? (() => { const { [threadId]: _, ...rest } = state.expandedStreamingBlockId; return rest; })()
+          : state.expandedStreamingBlockId;
+        const newRecentQueue = shouldClearStreaming
+          ? (() => { const { [threadId]: _, ...rest } = state.recentToolBlockIds; return rest; })()
+          : state.recentToolBlockIds;
+
+        return {
+          threads: state.threads.map((t) => t.id === threadId ? merged : t),
+          streamingBlocks: newStreamingBlocks,
+          expandedStreamingBlockId: newExpandedId,
+          recentToolBlockIds: newRecentQueue,
+        };
+      });
+    } catch (err) {
+      console.error(`[reconcile] Failed to reconcile thread ${threadId}:`, err);
+    }
   },
 }));
