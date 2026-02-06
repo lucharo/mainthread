@@ -3,9 +3,12 @@
 [![PyPI version](https://img.shields.io/pypi/v/mainthread.svg)](https://pypi.org/project/mainthread/)
 [![Python versions](https://img.shields.io/pypi/pyversions/mainthread.svg)](https://pypi.org/project/mainthread/)
 [![License](https://img.shields.io/pypi/l/mainthread.svg)](https://github.com/lucharo/mainthread/blob/main/LICENSE)
+[![Downloads](https://static.pepy.tech/badge/mainthread/month)](https://pepy.tech/project/mainthread)
 [![Discord](https://img.shields.io/badge/Discord-Join-7289da?logo=discord&logoColor=white)](https://discord.gg/yPEfp3Z8Z6)
 
 Multi-threaded Claude conversations with a web UI. Spawn sub-threads for parallel work that you can jump into at any time—these aren't autonomous sub-agents running in the background, they're full conversations you can continue from the CLI or UI whenever you need to.
+
+<!-- TODO: Add demo video here -->
 
 ## Use Cases
 
@@ -21,10 +24,10 @@ Multi-threaded Claude conversations with a web UI. Spawn sub-threads for paralle
 # Try it instantly with uvx (no install needed)
 uvx mainthread
 
-# Or install with pip/uv
-pip install mainthread
+# Or install as a tool
+uv tool install mainthread
 # or
-uv add mainthread
+pip install mainthread
 
 # Run the server (opens web UI at http://localhost:2026)
 mainthread
@@ -72,7 +75,7 @@ Sub-threads have:
 ### Prerequisites
 
 - Python 3.11+
-- Node.js 20+ / Bun
+- Node.js 20+ / pnpm
 - Claude Code CLI (`npm install -g @anthropic-ai/claude-code`)
 
 ### Setup
