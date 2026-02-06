@@ -79,6 +79,7 @@ function hasExpandableContent(name: string | undefined, input: Record<string, un
     case 'ArchiveThread':
     case 'SendToThread':
     case 'SignalStatus':
+    case 'TodoWrite':
       // These tools have no meaningful content to expand
       return false;
     default:
