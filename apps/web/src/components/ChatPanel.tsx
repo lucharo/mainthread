@@ -10,7 +10,7 @@ import {
   type PendingPlanApproval,
   useThreadStore,
 } from '../store/threadStore';
-import type { ChildPendingQuestion } from '../store/types';
+import type { ChildPendingQuestion, CreateThreadOptions } from '../store/types';
 import { CreateSubThreadModal } from './CreateSubThreadModal';
 import { CreateThreadModal } from './CreateThreadModal';
 import { ThinkingBlock } from './ThinkingBlock';
@@ -390,12 +390,7 @@ export function ChatPanel() {
     [activeThreadId, sendMessage]
   );
 
-  const handleCreateThread = async (options: {
-    title: string;
-    workDir?: string;
-    model?: ModelType;
-    extendedThinking?: boolean;
-  }) => {
+  const handleCreateThread = async (options: CreateThreadOptions) => {
     setShowCreateModal(false);
     setLocalError(null);
 
