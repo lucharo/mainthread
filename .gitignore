@@ -42,6 +42,9 @@ test.txt
 .DS_Store
 Thumbs.db
 
+# Media assets (local only)
+docs/media/
+
 # Temporary files
 *.tmp
 *.bak
