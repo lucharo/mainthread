@@ -331,8 +331,14 @@ def validate_work_dir(work_dir: str | None) -> str:
     resolved = Path(work_dir).resolve()
 
     if not resolved.exists():
-        resolved.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Auto-created working directory: {resolved}")
+        # Only auto-create under home dir or /tmp to prevent arbitrary path creation
+        home = Path.home()
+        safe_roots = (home, Path("/tmp"), Path("/private/tmp"))
+        if any(str(resolved).startswith(str(root)) for root in safe_roots):
+            resolved.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Auto-created working directory: {resolved}")
+        else:
+            raise ValueError(f"Working directory does not exist: {work_dir}")
 
     if not resolved.is_dir():
         raise ValueError(f"Path is not a directory: {work_dir}")
@@ -713,7 +719,11 @@ async def run_agent_with_retry(
 
         except asyncio.CancelledError:
             # User-initiated cancel - don't retry
-            processor.finalize_content()
+            # Shield finalize from cancellation so the DB write completes
+            try:
+                processor.finalize_content()
+            except asyncio.CancelledError:
+                pass
             raise
 
         except TimeoutError:
