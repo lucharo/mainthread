@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { STREAMING_BLOCK_CLEAR_DELAY_MS, RECENT_TOOLS_EXPANDED } from '../constants/animations';
+import { RECENT_TOOLS_EXPANDED } from '../constants/animations';
 
 // Re-export types from the types module for backward compatibility
 export type {
@@ -898,14 +898,26 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
 
         // Update the sub-thread's status
         get().updateThreadStatus(data.threadId, data.status);
-        // Add completion notification for parent thread (done or needs_attention)
+        // Clear streaming blocks when sub-thread completes to remove stale spinners/thinking indicators
         if (data.status === 'done' || data.status === 'needs_attention') {
-          get().addThreadNotification(threadId, {
-            threadId: data.threadId,
-            threadTitle: data.title || 'Sub-thread',
-            timestamp: new Date().toISOString(),
-            status: data.status,
-          });
+          get().clearStreamingBlocks(data.threadId);
+        }
+        // Add completion notification for parent thread (done or needs_attention),
+        // but skip if we already have a notification for this thread+status (dedup
+        // against duplicate subthread_status events from backend).
+        if (data.status === 'done' || data.status === 'needs_attention') {
+          const existing = get().threadNotifications[threadId] || [];
+          const alreadyNotified = existing.some(
+            (n) => n.threadId === data.threadId && n.status === data.status
+          );
+          if (!alreadyNotified) {
+            get().addThreadNotification(threadId, {
+              threadId: data.threadId,
+              threadTitle: data.title || 'Sub-thread',
+              timestamp: new Date().toISOString(),
+              status: data.status,
+            });
+          }
         }
       }
     });
@@ -1088,15 +1100,24 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     eventSource.addEventListener('usage', (event) => {
       updateLastEventId(event);
       const data = safeJsonParse<{ usage?: Record<string, number>; totalCostUsd?: number }>(event.data, {});
-      // Store usage data on the thread for display
+      // Accumulate usage data across turns (not overwrite)
       if (data.usage) {
-        set((state) => ({
-          threads: state.threads.map((t) =>
-            t.id === threadId
-              ? { ...t, lastUsage: data.usage, lastCostUsd: data.totalCostUsd }
-              : t
-          ),
-        }));
+        set((state) => {
+          const thread = state.threads.find((t) => t.id === threadId);
+          const existingUsage = thread?.lastUsage || { input_tokens: 0, output_tokens: 0 };
+          const accumulatedUsage = {
+            input_tokens: (existingUsage.input_tokens || 0) + (data.usage!.input_tokens || 0),
+            output_tokens: (existingUsage.output_tokens || 0) + (data.usage!.output_tokens || 0),
+          };
+          const accumulatedCost = (thread?.lastCostUsd || 0) + (data.totalCostUsd || 0);
+          return {
+            threads: state.threads.map((t) =>
+              t.id === threadId
+                ? { ...t, lastUsage: accumulatedUsage, lastCostUsd: accumulatedCost }
+                : t
+            ),
+          };
+        });
       }
     });
 
@@ -1132,48 +1153,51 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         }
       });
 
-      // Delay BOTH clearing streaming blocks AND updating messages so they happen
-      // at the same time. This prevents a ~600ms window where both streaming blocks
-      // AND persisted message content render simultaneously.
-      setTimeout(() => {
-        get().clearStreamingBlocks(threadId);
+      // Atomic transition: clear streaming blocks AND add persisted messages in a
+      // single set() call. This eliminates the overlap window where both streaming
+      // blocks and persisted message content would render simultaneously.
+      set((state) => {
+        const thread = state.threads.find((t) => t.id === threadId);
+        if (!thread) return state;
 
-        // Update thread with final messages and status (single source of truth)
-        set((state) => {
-          const thread = state.threads.find((t) => t.id === threadId);
-          if (!thread) return state;
+        let updatedMessages = [...thread.messages];
 
-          let updatedMessages = [...thread.messages];
-
-          // Replace optimistic user message with persisted one (matching by content or temp ID)
-          if (data.userMessage) {
-            const tempIdx = updatedMessages.findIndex(
-              (m) => m.id.startsWith('temp-') && m.role === 'user'
-            );
-            if (tempIdx >= 0) {
-              updatedMessages[tempIdx] = data.userMessage;
-            } else if (!updatedMessages.some((m) => m.id === data.userMessage!.id)) {
-              updatedMessages.push(data.userMessage);
-            }
+        // Replace optimistic user message with persisted one (matching by content or temp ID)
+        if (data.userMessage) {
+          const tempIdx = updatedMessages.findIndex(
+            (m) => m.id.startsWith('temp-') && m.role === 'user'
+          );
+          if (tempIdx >= 0) {
+            updatedMessages[tempIdx] = data.userMessage;
+          } else if (!updatedMessages.some((m) => m.id === data.userMessage!.id)) {
+            updatedMessages.push(data.userMessage);
           }
+        }
 
-          // Add assistant message if not already present
-          if (data.assistantMessage) {
-            const assistantExists = updatedMessages.some((m) => m.id === data.assistantMessage!.id);
-            if (!assistantExists) {
-              updatedMessages.push(data.assistantMessage);
-            }
+        // Add assistant message if not already present
+        if (data.assistantMessage) {
+          const assistantExists = updatedMessages.some((m) => m.id === data.assistantMessage!.id);
+          if (!assistantExists) {
+            updatedMessages.push(data.assistantMessage);
           }
+        }
 
-          return {
-            threads: state.threads.map((t) =>
-              t.id === threadId
-                ? { ...t, messages: updatedMessages, status: data.status || t.status }
-                : t
-            ),
-          };
-        });
-      }, STREAMING_BLOCK_CLEAR_DELAY_MS);
+        // Clear streaming blocks and update messages+status atomically
+        const { [threadId]: _, ...restBlocks } = state.streamingBlocks;
+        const { [threadId]: __, ...restExpanded } = state.expandedStreamingBlockId;
+        const { [threadId]: ___, ...restQueue } = state.recentToolBlockIds;
+
+        return {
+          threads: state.threads.map((t) =>
+            t.id === threadId
+              ? { ...t, messages: updatedMessages, status: data.status || t.status }
+              : t
+          ),
+          streamingBlocks: restBlocks,
+          expandedStreamingBlockId: restExpanded,
+          recentToolBlockIds: restQueue,
+        };
+      });
     });
 
     eventSource.addEventListener('error', (event: Event) => {
@@ -1294,6 +1318,16 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       // Start with finalized blocks
       let updatedBlocks = existingBlocks.map(b => ({ ...b, isFinalized: true }));
       let updatedQueue = [...existingQueue];
+
+      // FIFO completion: when a new tool_use or thinking block arrives,
+      // mark all previous incomplete tool_use blocks as complete
+      if (block.type === 'tool_use' || block.type === 'thinking') {
+        updatedBlocks = updatedBlocks.map(b =>
+          b.type === 'tool_use' && !b.isComplete
+            ? { ...b, isComplete: true, isFinalized: true }
+            : b
+        );
+      }
 
       // Handle FIFO collapsing for tool_use blocks (atomic with block addition)
       if (block.type === 'tool_use' && block.id) {

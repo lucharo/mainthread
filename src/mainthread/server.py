@@ -755,15 +755,17 @@ async def notify_parent_of_subthread_completion(
         # Also update the thread's stored status to "done"
         update_thread_status(thread_id, "done")
 
-    # Broadcast status update to frontend
-    await broadcast_to_thread(parent_id, {
-        "type": "subthread_status",
-        "data": {
-            "threadId": thread_id,
-            "status": effective_status,
-            "title": thread["title"],
-        },
-    })
+        # Only broadcast subthread_status when agent didn't call SignalStatus.
+        # When SignalStatus was used, broadcast_status_signal_to_parent already
+        # sent the subthread_status event - broadcasting again causes duplicates.
+        await broadcast_to_thread(parent_id, {
+            "type": "subthread_status",
+            "data": {
+                "threadId": thread_id,
+                "status": effective_status,
+                "title": thread["title"],
+            },
+        })
 
     # Inject user message into parent thread for agent visibility (user role so agent responds)
     status_msg = "completed" if effective_status == "done" else "needs attention"

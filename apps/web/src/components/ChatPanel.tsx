@@ -281,7 +281,7 @@ export function ChatPanel() {
   }, [hasActiveSubThreads]);
 
   // Minimum display time for ProcessingBlock (400ms) to ensure visibility
-  const shouldShowProcessing = activeThread?.status === 'pending' && currentStreamingBlocks.length === 0;
+  const shouldShowProcessing = (activeThread?.status === 'pending' || activeThread?.status === 'running') && currentStreamingBlocks.length === 0;
 
   useEffect(() => {
     if (shouldShowProcessing) {
@@ -594,7 +594,7 @@ export function ChatPanel() {
 
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto p-6 space-y-4 relative">
-        {messages.length === 0 && currentThreadNotifications.length === 0 && currentStreamingBlocks.length === 0 && (
+        {messages.length === 0 && currentThreadNotifications.length === 0 && currentStreamingBlocks.length === 0 && activeThread?.status !== 'pending' && activeThread?.status !== 'running' && (
           <div className="text-center text-muted-foreground py-12">
             <p className="text-lg">Start a conversation</p>
             <p className="text-sm">Type a message below to begin</p>
@@ -603,19 +603,12 @@ export function ChatPanel() {
 
         {/* Render messages and notifications chronologically */}
         {timelineItems.map((item, index) => {
-          // Skip content_blocks for the currently streaming message to avoid duplicates.
-          // This covers both mid-stream ('[streaming...]') and the brief window after the
-          // complete event fires when streaming blocks are still visible (600ms clear delay).
-          const isLastAssistantMsg = item.type === 'message' &&
-            item.data.role === 'assistant' &&
-            index === timelineItems.length - 1;
-
-          const hasActiveStreamingBlocks = currentStreamingBlocks.length > 0;
-
+          // Skip content_blocks for the placeholder streaming message.
+          // The atomic complete handler clears streaming blocks and adds persisted
+          // messages in a single set() call, so there's no overlap window.
           const shouldSkipContentBlocks = item.type === 'message' &&
             item.data.role === 'assistant' &&
-            (item.data.content === '[streaming...]' ||
-             (isLastAssistantMsg && hasActiveStreamingBlocks));
+            item.data.content === '[streaming...]';
 
           return item.type === 'message' ? (
             <MessageBubble key={item.data.id} message={item.data} skipContentBlocks={shouldSkipContentBlocks} />

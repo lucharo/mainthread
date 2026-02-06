@@ -107,7 +107,7 @@ export function SystemStats() {
           >
             RAM {stats.memory_percent.toFixed(0)}%
           </span>
-          <span>Claude: {stats.claude_process_count}</span>
+          <span>Processes: {stats.claude_process_count}</span>
         </div>
         <svg
           className={`w-4 h-4 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`}
@@ -146,10 +146,10 @@ export function SystemStats() {
           {stats.claude_process_count > 0 && (
             <div className="text-xs">
               <div className="text-muted-foreground mb-1">
-                Claude Processes ({stats.claude_process_count})
+                Claude Processes on Machine ({stats.claude_process_count})
               </div>
               <div className="text-muted-foreground/70">
-                Active subprocesses for thread execution
+                All claude processes running on this machine (includes CLI sessions)
               </div>
             </div>
           )}

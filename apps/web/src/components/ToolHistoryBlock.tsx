@@ -46,9 +46,21 @@ export function ToolHistoryBlock({ tools, onNavigateToThread }: ToolHistoryBlock
   if (tools.length === 0) return null;
 
   const latestTool = tools[tools.length - 1];
-  const completedCount = tools.filter((t) => t.isComplete).length;
   const totalCount = tools.length;
-  const hasRunning = tools.some((t) => !t.isComplete);
+
+  // For SpawnThread-only groups, count completed sub-threads instead of tool calls
+  const spawnedThreadsDone = isSpawnOnly
+    ? tools.filter((t) => {
+        const title = t.input?.title ? String(t.input.title) : null;
+        if (!title) return false;
+        const thread = threads.find((th) => th.title === title);
+        return thread?.status === 'done';
+      }).length
+    : 0;
+  const completedCount = isSpawnOnly ? spawnedThreadsDone : tools.filter((t) => t.isComplete).length;
+  const hasRunning = isSpawnOnly
+    ? completedCount < totalCount
+    : tools.some((t) => !t.isComplete);
 
   // Get preview for the latest tool
   const latestPreview = getToolPreview(latestTool.name, latestTool.input, {
