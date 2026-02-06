@@ -73,8 +73,6 @@ interface ThreadState {
   sendMessage: (threadId: string, content: string, options?: {
     images?: Array<{ data: string; media_type: string }>;
     fileRefs?: string[];
-    allowNestedSubthreads?: boolean;
-    maxThreadDepth?: number;
   }) => Promise<void>;
   stopThread: (threadId: string) => Promise<void>;
   updateThreadStatus: (threadId: string, status: ThreadStatus) => void;
@@ -301,21 +299,12 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       content: string;
       images?: Array<{ data: string; media_type: string }>;
       file_references?: string[];
-      allow_nested_subthreads?: boolean;
-      max_thread_depth?: number;
     } = { content };
     if (options?.images && options.images.length > 0) {
       requestBody.images = options.images;
     }
     if (options?.fileRefs && options.fileRefs.length > 0) {
       requestBody.file_references = options.fileRefs;
-    }
-    // Include nested subthread settings
-    if (options?.allowNestedSubthreads !== undefined) {
-      requestBody.allow_nested_subthreads = options.allowNestedSubthreads;
-    }
-    if (options?.maxThreadDepth !== undefined) {
-      requestBody.max_thread_depth = options.maxThreadDepth;
     }
 
     try {

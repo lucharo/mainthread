@@ -117,6 +117,8 @@ interface CreateThreadOptions {
   model?: ModelType;
   extendedThinking?: boolean;
   permissionMode?: PermissionMode;
+  allowNestedSubthreads?: boolean;
+  maxThreadDepth?: number;
   gitBranch?: string;
   useWorktree?: boolean;
   worktreePath?: string;
@@ -133,7 +135,7 @@ export function CreateThreadModal({
   onSubmit,
   onCancel,
 }: CreateThreadModalProps) {
-  const { defaultModel, defaultExtendedThinking, defaultPermissionMode, openSettings, closeCreateThreadModal } = useSettingsStore();
+  const { defaultModel, defaultExtendedThinking, defaultPermissionMode, experimentalAllowNestedSubthreads, experimentalMaxThreadDepth, openSettings, closeCreateThreadModal } = useSettingsStore();
   const [title, setTitle] = useState('');
   const [workDir, setWorkDir] = useState('');
   const [model, setModel] = useState<ModelType>(defaultModel);
@@ -436,6 +438,8 @@ export function CreateThreadModal({
         model,
         extendedThinking,
         permissionMode,
+        allowNestedSubthreads: experimentalAllowNestedSubthreads,
+        maxThreadDepth: experimentalMaxThreadDepth,
       };
 
       // Add git branch options if a different branch is selected

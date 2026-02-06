@@ -11,7 +11,6 @@ import {
   useThreadStore,
 } from '../store/threadStore';
 import type { ChildPendingQuestion } from '../store/types';
-import { useSettingsStore } from '../store/settingsStore';
 import { CreateSubThreadModal } from './CreateSubThreadModal';
 import { CreateThreadModal } from './CreateThreadModal';
 import { ThinkingBlock } from './ThinkingBlock';
@@ -179,10 +178,6 @@ export function ChatPanel() {
   const clearThreadMessages = useThreadStore((state) => state.clearThreadMessages);
   const archiveThread = useThreadStore((state) => state.archiveThread);
   const stopThread = useThreadStore((state) => state.stopThread);
-
-  // Experimental settings for nested sub-threads
-  const allowNestedSubthreads = useSettingsStore((state) => state.experimentalAllowNestedSubthreads);
-  const maxThreadDepth = useSettingsStore((state) => state.experimentalMaxThreadDepth);
 
   const childPendingQuestions = useThreadStore((state) => state.childPendingQuestions);
 
@@ -390,11 +385,9 @@ export function ChatPanel() {
       await sendMessage(activeThreadId, content, {
         images: apiImages,
         fileRefs,
-        allowNestedSubthreads,
-        maxThreadDepth,
       });
     },
-    [activeThreadId, sendMessage, allowNestedSubthreads, maxThreadDepth]
+    [activeThreadId, sendMessage]
   );
 
   const handleCreateThread = async (options: {
@@ -721,6 +714,19 @@ export function ChatPanel() {
           />
         )}
       </div>
+
+      {/* Experimental nesting indicator */}
+      {activeThread && !activeThread.parentId && activeThread.allowNestedSubthreads && (
+        <div className="mx-6 mb-2">
+          <div className="border border-dashed border-muted-foreground/30 rounded-lg px-3 py-2 bg-muted/20 text-muted-foreground text-xs flex items-center gap-2">
+            <span>&#x2697;&#xFE0F;</span>
+            <span>
+              <span className="font-medium">Experimental: Nesting</span>
+              {' '}— Sub-threads can nest up to {activeThread.maxThreadDepth ?? 1} level{(activeThread.maxThreadDepth ?? 1) !== 1 ? 's' : ''} deep
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Input area */}
       {activeThread && !isReadOnly && (

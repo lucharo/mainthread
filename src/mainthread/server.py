@@ -569,6 +569,8 @@ async def create_thread_for_agent(
     git_info = await detect_git_info(validated_work_dir)
 
     # If parent_id provided and params not explicit, inherit from parent
+    parent_allow_nested = False
+    parent_max_depth = 1
     if parent_id:
         parent = get_thread(parent_id)
         if parent:
@@ -578,6 +580,8 @@ async def create_thread_for_agent(
                 permission_mode = parent.get("permissionMode", "acceptEdits")
             if extended_thinking is None:
                 extended_thinking = parent.get("extendedThinking", True)
+            parent_allow_nested = parent.get("allowNestedSubthreads", False)
+            parent_max_depth = parent.get("maxThreadDepth", 1)
 
     # For sub-threads in git repos, create an isolated worktree if requested
     worktree_info: dict[str, Any] = {"success": False, "worktree_path": None, "branch_name": None, "error": None}
@@ -621,6 +625,8 @@ async def create_thread_for_agent(
         git_repo=git_info["git_repo"],
         is_worktree=final_is_worktree,
         worktree_branch=worktree_branch,
+        allow_nested_subthreads=parent_allow_nested,
+        max_thread_depth=parent_max_depth,
     )
 
     # Store worktree info in thread metadata for response messages
@@ -835,7 +841,12 @@ async def _notification_worker(thread_id: str) -> None:
                 update_thread_status(thread_id, "running")
                 await broadcast_to_thread(thread_id, {"type": "status_change", "data": {"status": "running"}})
                 async with asyncio.timeout(300):
-                    async for msg in run_agent(thread, notification_content):
+                    async for msg in run_agent(
+                        thread,
+                        notification_content,
+                        allow_nested_subthreads=thread.get("allowNestedSubthreads", False),
+                        max_thread_depth=thread.get("maxThreadDepth", 1),
+                    ):
                         await processor.process_message(msg)
 
             await processor.finalize()
@@ -918,7 +929,12 @@ async def run_thread_for_agent(thread_id: str, message: str, skip_add_message: b
             update_thread_status(thread_id, "running")
             await broadcast_to_thread(thread_id, {"type": "status_change", "data": {"status": "running"}})
             async with asyncio.timeout(300):  # 5 minute timeout
-                async for msg in run_agent(thread, message):
+                async for msg in run_agent(
+                    thread,
+                    message,
+                    allow_nested_subthreads=thread.get("allowNestedSubthreads", False),
+                    max_thread_depth=thread.get("maxThreadDepth", 1),
+                ):
                     await processor.process_message(msg)
 
         await processor.finalize()
@@ -1100,6 +1116,8 @@ class CreateThreadRequest(BaseModel):
     extendedThinking: bool = True
     permissionMode: PermissionMode = "acceptEdits"  # Default to acceptEdits (like Claude Code build mode)
     useWorktree: bool = False  # If True, create an isolated git worktree for the thread
+    allowNestedSubthreads: bool = False  # Per-thread nesting setting (set at creation, immutable)
+    maxThreadDepth: int = Field(1, ge=1, le=5)  # Per-thread max depth (set at creation, immutable)
 
 
 class UpdateConfigRequest(BaseModel):
@@ -1119,9 +1137,6 @@ class SendMessageRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=100000)
     images: list[ImageAttachment] | None = Field(None, max_length=10, description="Optional image attachments (max 10)")
     file_references: list[str] | None = Field(None, max_length=20, description="Optional file paths to include as context")
-    # Experimental settings for nested sub-threads
-    allow_nested_subthreads: bool = Field(True, description="Allow sub-threads to spawn their own sub-threads")
-    max_thread_depth: int = Field(3, ge=1, le=5, description="Maximum nesting depth for thread spawning")
 
 
 class UpdateStatusRequest(BaseModel):
@@ -1168,6 +1183,8 @@ class ThreadResponse(BaseModel):
     model: str
     extendedThinking: bool
     permissionMode: str
+    allowNestedSubthreads: bool = False
+    maxThreadDepth: int = 1
     gitBranch: str | None
     gitRepo: str | None
     isWorktree: bool
@@ -1938,6 +1955,8 @@ async def create_new_thread(request: CreateThreadRequest) -> dict[str, Any]:
             git_repo=git_info["git_repo"],
             is_worktree=final_is_worktree,
             worktree_branch=worktree_branch,
+            allow_nested_subthreads=request.allowNestedSubthreads,
+            max_thread_depth=request.maxThreadDepth,
         )
         return thread
     except ValueError as e:
@@ -2031,8 +2050,8 @@ async def send_message(thread_id: str, request: SendMessageRequest) -> dict[str,
                     thread,
                     message_content,
                     images=images,
-                    allow_nested_subthreads=request.allow_nested_subthreads,
-                    max_thread_depth=request.max_thread_depth,
+                    allow_nested_subthreads=thread.get("allowNestedSubthreads", False),
+                    max_thread_depth=thread.get("maxThreadDepth", 1),
                 ):
                     await processor.process_message(msg)
 

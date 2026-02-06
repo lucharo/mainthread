@@ -147,6 +147,14 @@ def init_database() -> None:
         if "is_ephemeral" not in thread_columns:
             conn.execute("ALTER TABLE threads ADD COLUMN is_ephemeral INTEGER DEFAULT 0")
 
+        # Migration: Add per-thread nesting settings
+        cursor = conn.execute("PRAGMA table_info(threads)")
+        thread_columns = [row[1] for row in cursor.fetchall()]
+        if "allow_nested_subthreads" not in thread_columns:
+            conn.execute("ALTER TABLE threads ADD COLUMN allow_nested_subthreads INTEGER DEFAULT 0")
+        if "max_thread_depth" not in thread_columns:
+            conn.execute("ALTER TABLE threads ADD COLUMN max_thread_depth INTEGER DEFAULT 1")
+
 
 def _format_thread(row: dict[str, Any], messages: list[dict[str, Any]]) -> dict[str, Any]:
     """Format thread row to match frontend expectations."""
@@ -171,6 +179,8 @@ def _format_thread(row: dict[str, Any], messages: list[dict[str, Any]]) -> dict[
         "isWorktree": bool(row.get("is_worktree", 0)),
         "worktreeBranch": row.get("worktree_branch"),
         "isEphemeral": bool(row.get("is_ephemeral", 0)),
+        "allowNestedSubthreads": bool(row.get("allow_nested_subthreads", 0)),
+        "maxThreadDepth": row.get("max_thread_depth", 1) or 1,
         "inputTokens": row.get("input_tokens", 0) or 0,
         "outputTokens": row.get("output_tokens", 0) or 0,
         "totalCostUsd": row.get("total_cost_usd", 0.0) or 0.0,
@@ -191,7 +201,8 @@ def get_all_threads(include_archived: bool = False) -> list[dict[str, Any]]:
                 t.id, t.title, t.status, t.parent_id, t.work_dir,
                 t.session_id, t.model, t.extended_thinking, t.plan_mode, t.permission_mode,
                 t.auto_react, t.git_branch, t.git_repo, t.is_worktree, t.worktree_branch,
-                t.is_ephemeral, t.input_tokens, t.output_tokens, t.total_cost_usd,
+                t.is_ephemeral, t.allow_nested_subthreads, t.max_thread_depth,
+                t.input_tokens, t.output_tokens, t.total_cost_usd,
                 t.archived_at, t.created_at, t.updated_at,
                 m.id as msg_id, m.role, m.content, m.content_blocks, m.timestamp as msg_timestamp
             FROM threads t
@@ -225,6 +236,8 @@ def get_all_threads(include_archived: bool = False) -> list[dict[str, Any]]:
                     "is_worktree": row_dict.get("is_worktree", 0),
                     "worktree_branch": row_dict.get("worktree_branch"),
                     "is_ephemeral": row_dict.get("is_ephemeral", 0),
+                    "allow_nested_subthreads": row_dict.get("allow_nested_subthreads", 0),
+                    "max_thread_depth": row_dict.get("max_thread_depth", 1),
                     "input_tokens": row_dict.get("input_tokens", 0),
                     "output_tokens": row_dict.get("output_tokens", 0),
                     "total_cost_usd": row_dict.get("total_cost_usd", 0.0),
@@ -316,6 +329,8 @@ def create_thread(
     git_repo: str | None = None,
     is_worktree: bool = False,
     worktree_branch: str | None = None,
+    allow_nested_subthreads: bool = False,
+    max_thread_depth: int = 1,
 ) -> dict[str, Any]:
     """Create a new thread."""
     if not title or len(title) > 255:
@@ -331,11 +346,13 @@ def create_thread(
             """
             INSERT INTO threads (id, title, parent_id, work_dir, model, extended_thinking,
                                  permission_mode, git_branch, git_repo, is_worktree, worktree_branch,
+                                 allow_nested_subthreads, max_thread_depth,
                                  created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (thread_id, title, parent_id, work_dir, model, int(extended_thinking),
-             permission_mode, git_branch, git_repo, int(is_worktree), worktree_branch, now, now),
+             permission_mode, git_branch, git_repo, int(is_worktree), worktree_branch,
+             int(allow_nested_subthreads), max_thread_depth, now, now),
         )
 
     thread = get_thread(thread_id)

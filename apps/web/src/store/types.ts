@@ -44,6 +44,9 @@ export interface Thread {
   // Actual token usage from SDK (updated after each agent run)
   lastUsage?: Record<string, number>;
   lastCostUsd?: number;
+  // Per-thread nesting settings (set at creation, immutable)
+  allowNestedSubthreads?: boolean;
+  maxThreadDepth?: number;
   // Ephemeral sub-agent threads (not persisted, shown inline)
   isEphemeral?: boolean;
   isReadOnly?: boolean;
@@ -124,6 +127,9 @@ export interface CreateThreadOptions {
   model?: ModelType;
   extendedThinking?: boolean;
   permissionMode?: PermissionMode;
+  // Per-thread nesting settings
+  allowNestedSubthreads?: boolean;
+  maxThreadDepth?: number;
   // Git branch selection options
   gitBranch?: string;  // Branch to use/create
   useWorktree?: boolean;
