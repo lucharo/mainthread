@@ -1160,10 +1160,12 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
           }
         }
 
-        // Add assistant message if not already present
+        // Replace existing assistant message (may be stale from reconnect) or add new one
         if (data.assistantMessage) {
-          const assistantExists = updatedMessages.some((m) => m.id === data.assistantMessage!.id);
-          if (!assistantExists) {
+          const existingIdx = updatedMessages.findIndex((m) => m.id === data.assistantMessage!.id);
+          if (existingIdx >= 0) {
+            updatedMessages[existingIdx] = data.assistantMessage;
+          } else {
             updatedMessages.push(data.assistantMessage);
           }
         }
