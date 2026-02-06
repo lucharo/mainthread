@@ -705,15 +705,16 @@ export function ChatPanel() {
         <div ref={scrollAnchorRef} className="h-1" />
         <div ref={messagesEndRef} />
 
-        {/* Floating minimap */}
-        {showMinimap && (
-          <ThreadMinimap
-            threads={threads}
-            activeThreadId={activeThreadId}
-            onNavigate={setActiveThread}
-          />
-        )}
       </div>
+
+      {/* Floating minimap - fixed to viewport bottom-right */}
+      {showMinimap && (
+        <ThreadMinimap
+          threads={threads}
+          activeThreadId={activeThreadId}
+          onNavigate={setActiveThread}
+        />
+      )}
 
       {/* Experimental nesting indicator */}
       {activeThread && !activeThread.parentId && activeThread.allowNestedSubthreads && (

@@ -227,7 +227,7 @@ export function ThreadMinimap({ threads, activeThreadId, onNavigate }: ThreadMin
 
   return (
     <div
-      className="sticky bottom-4 float-right mr-4 z-20 bg-background/90 backdrop-blur-sm border border-border rounded-lg shadow-lg"
+      className="fixed bottom-4 right-4 z-20 bg-background/90 backdrop-blur-sm border border-border rounded-lg shadow-lg"
       style={{ maxWidth: 260, maxHeight: 200, overflow: 'visible' }}
     >
       <svg

@@ -316,7 +316,7 @@ function PersistedBlockRenderer({
           name={block.name}
           input={block.input as Record<string, unknown>}
           isComplete={block.isComplete ?? true}
-          startCollapsed={!isLastToolBlock}
+          startCollapsed={!isLastToolBlock || block.name === 'ReadThread'}
           onNavigateToThread={onNavigateToThread}
         />
       );
@@ -390,20 +390,10 @@ export const MessageBubble = memo(function MessageBubble({ message, skipContentB
     );
   }
 
-  // Render notification messages as subtle visual separators
+  // Skip notification messages - these are rendered by SubthreadCompletionNotification in ChatPanel
   const isNotification = isUser && message.content.startsWith('[notification]');
   if (isNotification) {
-    const match = message.content.match(/Sub-thread "(.+?)" (completed|needs attention)/);
-    const threadTitle = match?.[1] || 'Sub-thread';
-    const status = match?.[2] || 'completed';
-    return (
-      <div className="flex justify-center my-3">
-        <div className="flex items-center gap-2 px-3 py-1 text-xs text-muted-foreground bg-muted/20 rounded-full border border-border/30">
-          <span className={`w-2 h-2 rounded-full ${status === 'completed' ? 'bg-green-500' : 'bg-amber-500'}`} />
-          <span>{threadTitle} {status}</span>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   // Render content blocks if available (skip if streaming is active to avoid duplicates)
