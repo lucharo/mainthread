@@ -98,6 +98,17 @@ def init_database() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id);
             CREATE INDEX IF NOT EXISTS idx_threads_parent ON threads(parent_id);
+
+            CREATE TABLE IF NOT EXISTS events (
+                seq_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                thread_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                data TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_events_thread_seq ON events(thread_id, seq_id);
         """)
 
         # Migration: Add content_blocks column if it doesn't exist
@@ -947,6 +958,84 @@ def get_recent_work_dirs(limit: int = 5) -> list[str]:
             (limit,),
         )
         return [row[0] for row in cursor.fetchall()]
+
+
+# ---------------------------------------------------------------------------
+# SSE Event persistence (replaces in-memory SSEEventStore)
+# ---------------------------------------------------------------------------
+
+def add_event(thread_id: str, event_type: str, data: str) -> int:
+    """Persist an SSE event and return its sequence ID.
+
+    Args:
+        thread_id: The thread this event belongs to
+        event_type: Event type (text_delta, thinking, tool_use, etc.)
+        data: JSON-serialized event payload
+
+    Returns:
+        The auto-incremented seq_id for this event.
+    """
+    with get_db() as conn:
+        cursor = conn.execute(
+            "INSERT INTO events (thread_id, event_type, data) VALUES (?, ?, ?)",
+            (thread_id, event_type, data),
+        )
+        return cursor.lastrowid  # type: ignore[return-value]
+
+
+def get_events_since(thread_id: str, last_seq_id: int) -> list[dict[str, Any]]:
+    """Get events after the given sequence ID for replay on reconnect.
+
+    Returns events ordered by seq_id ascending, each with
+    seq_id, thread_id, event_type, data (JSON string), created_at.
+    """
+    with get_db() as conn:
+        cursor = conn.execute(
+            """
+            SELECT seq_id, thread_id, event_type, data, created_at
+            FROM events
+            WHERE thread_id = ? AND seq_id > ?
+            ORDER BY seq_id ASC
+            """,
+            (thread_id, last_seq_id),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def get_latest_seq_id(thread_id: str) -> int:
+    """Get the latest sequence ID for a thread (0 if no events)."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            "SELECT MAX(seq_id) FROM events WHERE thread_id = ?",
+            (thread_id,),
+        )
+        row = cursor.fetchone()
+        return row[0] or 0
+
+
+def clear_thread_events(thread_id: str) -> int:
+    """Clear all events for a thread. Returns count of deleted events."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            "DELETE FROM events WHERE thread_id = ?",
+            (thread_id,),
+        )
+        return cursor.rowcount
+
+
+def cleanup_old_events(max_age_hours: int = 24) -> int:
+    """Remove events older than max_age_hours. Returns count deleted.
+
+    Called periodically to prevent the events table from growing unbounded.
+    Events are only needed for SSE reconnection recovery, so keeping
+    24 hours is more than sufficient.
+    """
+    with get_db() as conn:
+        cursor = conn.execute(
+            "DELETE FROM events WHERE created_at < datetime('now', ?)",
+            (f"-{max_age_hours} hours",),
+        )
+        return cursor.rowcount
 
 
 # Initialize database on module load

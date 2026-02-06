@@ -42,13 +42,17 @@ from mainthread.agents.task_registry import (
     unregister_task,
 )
 from mainthread.db import (
+    add_event,
     add_message,
     archive_thread,
+    cleanup_old_events,
+    clear_thread_events,
     clear_thread_messages,
     create_ephemeral_thread,
     create_thread,
     estimate_thread_tokens,
     get_all_threads,
+    get_events_since,
     get_messages_paginated,
     get_recent_work_dirs,
     get_thread,
@@ -73,43 +77,11 @@ logger = logging.getLogger(__name__)
 # SSE event queues for each thread (declared early for lifespan access)
 thread_subscribers: dict[str, list[asyncio.Queue[dict[str, Any]]]] = defaultdict(list)
 
-# SSE event store for reconnection recovery
-# Stores recent events per thread with sequence IDs for replay on reconnect
-class SSEEventStore:
-    """In-memory store for recent SSE events to support reconnection recovery."""
-
-    def __init__(self, max_events_per_thread: int = 500):
-        self.max_events = max_events_per_thread
-        self.events: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        self.sequence: dict[str, int] = defaultdict(int)
-
-    def add_event(self, thread_id: str, event: dict[str, Any]) -> int:
-        """Add an event and return its sequence ID."""
-        self.sequence[thread_id] += 1
-        seq_id = self.sequence[thread_id]
-        event_with_id = {**event, "_seq_id": seq_id}
-        self.events[thread_id].append(event_with_id)
-        # Trim old events
-        if len(self.events[thread_id]) > self.max_events:
-            self.events[thread_id] = self.events[thread_id][-self.max_events :]
-        return seq_id
-
-    def get_events_since(self, thread_id: str, last_id: int) -> list[dict[str, Any]]:
-        """Get events after the given sequence ID."""
-        return [e for e in self.events[thread_id] if e["_seq_id"] > last_id]
-
-    def clear_thread(self, thread_id: str) -> None:
-        """Clear events for a thread (e.g., when thread is deleted)."""
-        self.events.pop(thread_id, None)
-        self.sequence.pop(thread_id, None)
-
-    def clear(self) -> None:
-        """Clear all events (for hot reload)."""
-        self.events.clear()
-        self.sequence.clear()
-
-
-sse_event_store = SSEEventStore()
+# SSE event persistence is now SQLite-backed (db.events table).
+# Events survive server restarts and support reconnection recovery.
+# Periodic cleanup removes events older than 24 hours.
+_event_cleanup_task: asyncio.Task | None = None
+EVENT_CLEANUP_INTERVAL_SECONDS = 3600  # Run cleanup every hour
 
 # Per-parent notification queues to process notifications sequentially without dropping
 _notification_queues: dict[str, asyncio.Queue[str]] = {}
@@ -126,6 +98,20 @@ AGENT_TIMEOUT_SECONDS = int(os.environ.get("MAINTHREAD_AGENT_TIMEOUT", "1800"))
 _watchdog_task: asyncio.Task | None = None
 WATCHDOG_INTERVAL_SECONDS = 15  # Check frequently for fast detection
 WATCHDOG_STUCK_THRESHOLD_SECONDS = AGENT_TIMEOUT_SECONDS + 60  # timeout + 1 min buffer
+
+
+async def _periodic_event_cleanup() -> None:
+    """Periodically clean up old SSE events from SQLite to prevent unbounded growth."""
+    while True:
+        try:
+            await asyncio.sleep(EVENT_CLEANUP_INTERVAL_SECONDS)
+            deleted = cleanup_old_events(max_age_hours=24)
+            if deleted > 0:
+                logger.info(f"[EVENT_CLEANUP] Removed {deleted} events older than 24h")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.debug(f"[EVENT_CLEANUP] Error during cleanup: {e}")
 
 
 async def _stuck_thread_watchdog() -> None:
@@ -231,7 +217,6 @@ async def lifespan(app: FastAPI):
     thread_subscribers.clear()
     _notification_queues.clear()
     _notification_workers.clear()
-    sse_event_store.clear()
     await clear_all_tasks()
     reset_agent_state()
 
@@ -249,7 +234,11 @@ async def lifespan(app: FastAPI):
     global _watchdog_task
     _watchdog_task = asyncio.create_task(_stuck_thread_watchdog())
 
-    logger.info("MainThread API started - asyncio state reset")
+    # Start periodic event cleanup (remove events older than 24h)
+    global _event_cleanup_task
+    _event_cleanup_task = asyncio.create_task(_periodic_event_cleanup())
+
+    logger.info("MainThread API started - SSE events persisted to SQLite")
     yield
     # Shutdown: cleanup
     logger.info("MainThread API shutting down")
@@ -269,7 +258,10 @@ async def lifespan(app: FastAPI):
     _notification_workers.clear()
     if worker_count:
         logger.info(f"Cancelled {worker_count} notification workers")
-    sse_event_store.clear()
+    # Cancel event cleanup task
+    if _event_cleanup_task:
+        _event_cleanup_task.cancel()
+        _event_cleanup_task = None
     await clear_all_tasks()
     logger.info("MainThread API shutdown complete")
 
@@ -2437,8 +2429,8 @@ async def cleanup_thread_resources(thread_id: str) -> None:
 
     Called when archiving a thread to prevent memory/resource leaks.
     """
-    # 1. Clear SSE event store for this thread
-    sse_event_store.clear_thread(thread_id)
+    # 1. Clear SSE events for this thread from DB
+    clear_thread_events(thread_id)
 
     # 2. Close SSE subscribers
     await close_thread_subscribers(thread_id)
@@ -2870,19 +2862,18 @@ async def stream_thread_events(
                 "data": json.dumps({"threadId": thread_id}),
             }
 
-            # Replay missed events if reconnecting
+            # Replay missed events from SQLite (survives server restarts)
             if last_event_id is not None:
-                missed_events = sse_event_store.get_events_since(thread_id, last_event_id)
+                missed_events = get_events_since(thread_id, last_event_id)
                 if missed_events:
                     logger.info(
-                        f"[SSE] Replaying {len(missed_events)} missed events for thread {thread_id}"
+                        f"[SSE] Replaying {len(missed_events)} missed events for thread {thread_id} from DB"
                     )
                 for event in missed_events:
-                    seq_id = event.get("_seq_id", 0)
                     yield {
-                        "event": event["type"],
-                        "data": json.dumps(event["data"]),
-                        "id": str(seq_id),
+                        "event": event["event_type"],
+                        "data": event["data"],  # Already JSON string from DB
+                        "id": str(event["seq_id"]),
                     }
 
             while True:
@@ -2917,11 +2908,13 @@ async def stream_thread_events(
 async def broadcast_to_thread(thread_id: str, event: dict[str, Any]) -> None:
     """Broadcast an event to all subscribers of a thread.
 
-    Events are stored for reconnection recovery. Clients can use Last-Event-Id
-    header to replay missed events after reconnection.
+    Events are persisted to SQLite for reconnection recovery.
+    Survives server restarts - clients replay from last seq_id.
     """
-    # Store event with sequence ID for reconnection recovery
-    seq_id = sse_event_store.add_event(thread_id, event)
+    # Persist event to SQLite (survives server restarts)
+    event_type = event.get("type", "unknown")
+    data_json = json.dumps(event.get("data", {}))
+    seq_id = add_event(thread_id, event_type, data_json)
     event_with_id = {**event, "_seq_id": seq_id}
 
     for queue in thread_subscribers.get(thread_id, []):
