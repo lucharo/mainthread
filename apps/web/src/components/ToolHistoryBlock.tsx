@@ -33,7 +33,7 @@ export function ToolHistoryBlock({ tools, onNavigateToThread }: ToolHistoryBlock
   const allComplete = tools.every((t) => t.isComplete);
   const wasIncomplete = useRef(!allComplete);
   useEffect(() => {
-    if (allComplete && wasIncomplete.current && expanded) {
+    if (allComplete && wasIncomplete.current && expanded && !isSpawnOnly) {
       const timer = setTimeout(() => setExpanded(false), COLLAPSE_ANIMATION_DURATION_MS);
       wasIncomplete.current = false;
       return () => clearTimeout(timer);

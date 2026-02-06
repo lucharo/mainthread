@@ -838,15 +838,8 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     eventSource.addEventListener('stopped', (event) => {
       updateLastEventId(event);
       console.log('[SSE] stopped received for thread', threadId);
-      // Mark all remaining incomplete tool_use blocks as complete before clearing.
-      // This prevents spinner artifacts when a thread is stopped mid-execution.
-      const currentBlocks = get().streamingBlocks[threadId] || [];
-      currentBlocks.forEach((block) => {
-        if (block.type === 'tool_use' && block.id && !block.isComplete) {
-          console.log('[SSE] stopped: force-completing incomplete tool block:', block.id);
-          get().markBlockComplete(threadId, block.id);
-        }
-      });
+      // FIFO auto-completion handles spinners during streaming. clearStreamingBlocks
+      // below removes all blocks anyway, so force-completing here is unnecessary.
       // Clear streaming blocks and update status
       get().clearStreamingBlocks(threadId);
       get().updateThreadStatus(threadId, 'active');
@@ -1142,16 +1135,10 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       const data = safeJsonParse<{ userMessage?: Message; assistantMessage?: Message; status?: ThreadStatus }>(event.data, {});
       console.log('[SSE] complete received');
 
-      // Mark all remaining incomplete tool_use blocks as complete immediately.
-      // This prevents spinner artifacts when tool_result SSE events were missed
-      // or arrived out of order (e.g., SpawnThread tool_result race condition).
-      const currentBlocks = get().streamingBlocks[threadId] || [];
-      currentBlocks.forEach((block) => {
-        if (block.type === 'tool_use' && block.id && !block.isComplete) {
-          console.log('[SSE] complete: force-completing incomplete tool block:', block.id);
-          get().markBlockComplete(threadId, block.id);
-        }
-      });
+      // Note: FIFO auto-completion in appendStreamingBlock handles spinner resolution
+      // during streaming. The atomic set() below clears all streaming blocks anyway,
+      // so force-completing individual blocks here would be wasted work (immediately
+      // overwritten by the destructured streamingBlocks removal).
 
       // Atomic transition: clear streaming blocks AND add persisted messages in a
       // single set() call. This eliminates the overlap window where both streaming

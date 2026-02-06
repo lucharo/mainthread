@@ -755,9 +755,10 @@ async def notify_parent_of_subthread_completion(
         # Also update the thread's stored status to "done"
         update_thread_status(thread_id, "done")
 
-        # Only broadcast subthread_status when agent didn't call SignalStatus.
-        # When SignalStatus was used, broadcast_status_signal_to_parent already
-        # sent the subthread_status event - broadcasting again causes duplicates.
+    # Broadcast subthread_status to frontend. Skip only when SignalStatus was
+    # used (final_status != "active"), since broadcast_status_signal_to_parent
+    # already sent the event in that case.
+    if final_status == "active":
         await broadcast_to_thread(parent_id, {
             "type": "subthread_status",
             "data": {
@@ -799,10 +800,10 @@ async def run_parent_thread_notification(thread_id: str, notification_content: s
     if thread_id not in _notification_queues:
         _notification_queues[thread_id] = asyncio.Queue()
         worker = asyncio.create_task(_notification_worker(thread_id))
-        worker.add_done_callback(
-            lambda t: logger.error(f"Notification worker for {thread_id} failed: {t.exception()}")
-            if t.exception() else None
-        )
+        def _on_worker_done(t):
+            if t.exception():
+                logger.error(f"Notification worker for {thread_id} failed: {t.exception()}")
+        worker.add_done_callback(_on_worker_done)
         _notification_workers[thread_id] = worker
 
     await _notification_queues[thread_id].put(notification_content)

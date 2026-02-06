@@ -166,7 +166,7 @@ export function ChatPanel() {
   const threadNotifications = useThreadStore((state) => state.threadNotifications);
   const spawnedThreadIds = useThreadStore((state) => state.spawnedThreadIds);
   const error = useThreadStore((state) => state.error);
-  const queueWaiting = useThreadStore((state) => (state as unknown as Record<string, unknown>).queueWaiting as Record<string, boolean> | undefined);
+  const queueWaiting = useThreadStore((state) => state.queueWaiting);
 
   // Actions don't cause re-renders, safe to group
   const sendMessage = useThreadStore((state) => state.sendMessage);
@@ -184,10 +184,7 @@ export function ChatPanel() {
   const allowNestedSubthreads = useSettingsStore((state) => state.experimentalAllowNestedSubthreads);
   const maxThreadDepth = useSettingsStore((state) => state.experimentalMaxThreadDepth);
 
-  // Safe read for childPendingQuestions (may not exist in store yet)
-  const childPendingQuestions = useThreadStore(
-    (state) => (state as unknown as Record<string, unknown>).childPendingQuestions as Record<string, ChildPendingQuestion[]> | undefined
-  );
+  const childPendingQuestions = useThreadStore((state) => state.childPendingQuestions);
 
   const [isCreatingThread, setIsCreatingThread] = useState(false);
   const [showSpawnModal, setShowSpawnModal] = useState(false);
