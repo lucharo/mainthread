@@ -88,7 +88,7 @@ _notification_queues: dict[str, asyncio.Queue[str]] = {}
 _notification_workers: dict[str, asyncio.Task] = {}
 
 # Concurrency control: limit concurrent Claude agent processes
-MAX_CONCURRENT_AGENTS = int(os.environ.get("MAINTHREAD_MAX_AGENTS", "10"))
+MAX_CONCURRENT_AGENTS = int(os.environ.get("MAINTHREAD_MAX_AGENTS", "20"))
 _agent_semaphore = asyncio.Semaphore(MAX_CONCURRENT_AGENTS)
 
 # Agent execution timeout (default 30 min - complex tasks like full-stack builds need time)
@@ -400,7 +400,21 @@ class MessageStreamProcessor:
         self.message_id = self._message["id"]
 
     def _save_current_state(self) -> None:
-        """Save current content to database (called after each event)."""
+        """Save current content_blocks to database (called after each event).
+
+        IMPORTANT: We keep content as '[streaming...]' during streaming so the
+        frontend's shouldSkipContentBlocks guard works correctly. If we updated
+        content to the real text here, a reconcileThread during SSE reconnect
+        would break the guard and cause duplicate rendering (streaming blocks +
+        persisted content_blocks shown simultaneously).
+        """
+        content_blocks = self.get_content_blocks_json()
+        updated = update_message(self.message_id, "[streaming...]", content_blocks)
+        if updated:
+            self._message = updated
+
+    def finalize_content(self) -> None:
+        """Update the message with final content text (called once at end of stream)."""
         content = self.get_full_content()
         content_blocks = self.get_content_blocks_json()
         updated = update_message(self.message_id, content, content_blocks)
@@ -595,9 +609,11 @@ class MessageStreamProcessor:
         self._save_current_state()
 
     async def finalize(self) -> None:
-        """Complete remaining pending tools at end of stream."""
+        """Complete remaining pending tools and finalize message content."""
         while self.pending_tool_ids:
             await self._complete_pending_tool()
+        # Now that streaming is done, write the real content text
+        self.finalize_content()
 
     def get_full_content(self) -> str:
         """Get concatenated text content."""
@@ -692,21 +708,21 @@ async def run_agent_with_retry(
 
             # Success - finalize and return
             await processor.finalize()
-            processor._save_current_state()
             return processor
 
         except asyncio.CancelledError:
             # User-initiated cancel - don't retry
+            processor.finalize_content()
             raise
 
         except TimeoutError:
             # Timeout - don't retry (already waited long enough)
-            processor._save_current_state()
+            processor.finalize_content()
             raise
 
         except Exception as e:
             last_error = e
-            processor._save_current_state()
+            processor.finalize_content()
 
             if attempt < MAX_AGENT_RETRIES:
                 logger.warning(
@@ -1144,9 +1160,10 @@ async def run_thread_for_agent(thread_id: str, message: str, skip_add_message: b
             "type": "error",
             "data": {"error": f"Request timed out after {AGENT_TIMEOUT_SECONDS // 60} minutes"},
         })
-        # Notify parent so it knows the sub-thread failed
-        if thread:
-            await _notify_parent_on_subthread_error(thread, thread_id, f"timed out after {AGENT_TIMEOUT_SECONDS // 60} minutes")
+        # Notify parent so it knows the sub-thread failed (re-fetch for fresh state)
+        err_thread = get_thread(thread_id)
+        if err_thread:
+            await _notify_parent_on_subthread_error(err_thread, thread_id, f"timed out after {AGENT_TIMEOUT_SECONDS // 60} minutes")
 
     except Exception as e:
         error_msg = str(e) or type(e).__name__
@@ -1156,9 +1173,10 @@ async def run_thread_for_agent(thread_id: str, message: str, skip_add_message: b
             "type": "error",
             "data": {"error": error_msg},
         })
-        # Notify parent so it knows the sub-thread failed
-        if thread:
-            await _notify_parent_on_subthread_error(thread, thread_id, error_msg)
+        # Notify parent so it knows the sub-thread failed (re-fetch for fresh state)
+        err_thread = get_thread(thread_id)
+        if err_thread:
+            await _notify_parent_on_subthread_error(err_thread, thread_id, error_msg)
 
     finally:
         unregister_task(thread_id)
