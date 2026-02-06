@@ -8,7 +8,7 @@
 
 Multi-threaded Claude conversations with a web UI. Spawn sub-threads for parallel work that you can jump into at any time—these aren't autonomous sub-agents running in the background, they're full conversations you can continue from the CLI or UI whenever you need to.
 
-<!-- TODO: Add demo video here -->
+https://github.com/user-attachments/assets/66de4bdd-c883-4f51-a4fc-79a4f15d1d67
 
 ## Use Cases
 
