@@ -19,7 +19,12 @@ jobs:
         with:
           enable-cache: true
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
 
       - name: Install backend dependencies
         run: uv sync --extra dev
@@ -28,16 +33,13 @@ jobs:
         run: uv run pytest
 
       - name: Install frontend dependencies
-        run: bun install
-        working-directory: apps/web
+        run: pnpm install
 
       - name: Run frontend tests
-        run: bun run test
-        working-directory: apps/web
+        run: pnpm --filter @mainthread/web run test
 
       - name: Build frontend
-        run: bun run build
-        working-directory: apps/web
+        run: pnpm --filter @mainthread/web run build
 
   release:
     needs: test
@@ -50,7 +52,12 @@ jobs:
         with:
           enable-cache: true
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
 
       - name: Validate tag matches pyproject.toml version
         run: |
@@ -62,8 +69,7 @@ jobs:
           fi
 
       - name: Build frontend
-        run: bun install && bun run build
-        working-directory: apps/web
+        run: pnpm install && pnpm --filter @mainthread/web run build
 
       - name: Build Python package
         run: uv build

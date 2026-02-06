@@ -17,9 +17,6 @@ importers:
 
   apps/web:
     dependencies:
-      '@mainthread/ui':
-        specifier: workspace:*
-        version: link:../../packages/ui
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -75,12 +72,6 @@ importers:
       vitest:
         specifier: ^4.0.17
         version: 4.0.17(@types/node@20.19.30)(jiti@1.21.7)(jsdom@27.4.0)(tsx@4.21.0)
-
-  packages/ui:
-    dependencies:
-      react:
-        specifier: ^18.2.0
-        version: 18.3.1
 
 packages:
 
