@@ -119,14 +119,23 @@ _notification_workers: dict[str, asyncio.Task] = {}
 MAX_CONCURRENT_AGENTS = int(os.environ.get("MAINTHREAD_MAX_AGENTS", "10"))
 _agent_semaphore = asyncio.Semaphore(MAX_CONCURRENT_AGENTS)
 
+# Agent execution timeout (default 30 min - complex tasks like full-stack builds need time)
+AGENT_TIMEOUT_SECONDS = int(os.environ.get("MAINTHREAD_AGENT_TIMEOUT", "1800"))
+
 # Watchdog for stuck threads
 _watchdog_task: asyncio.Task | None = None
-WATCHDOG_INTERVAL_SECONDS = 60
-WATCHDOG_STUCK_THRESHOLD_SECONDS = 120
+WATCHDOG_INTERVAL_SECONDS = 15  # Check frequently for fast detection
+WATCHDOG_STUCK_THRESHOLD_SECONDS = AGENT_TIMEOUT_SECONDS + 60  # timeout + 1 min buffer
 
 
 async def _stuck_thread_watchdog() -> None:
-    """Periodically check for threads stuck in pending/active status without SSE activity."""
+    """Periodically check for threads stuck in pending/running status and recover them.
+
+    Instead of just logging, this watchdog actively recovers stuck threads by:
+    1. Setting their status to 'needs_attention'
+    2. Broadcasting an error event to SSE subscribers
+    3. Notifying the parent thread if it's a sub-thread
+    """
     while True:
         try:
             await asyncio.sleep(WATCHDOG_INTERVAL_SECONDS)
@@ -134,7 +143,7 @@ async def _stuck_thread_watchdog() -> None:
             all_threads = get_all_threads(include_archived=False)
             for thread in all_threads:
                 status = thread.get("status")
-                if status not in ("pending", "active"):
+                if status not in ("pending", "running"):
                     continue
                 updated_at = thread.get("updatedAt") or thread.get("createdAt", "")
                 if not updated_at:
@@ -145,18 +154,70 @@ async def _stuck_thread_watchdog() -> None:
                         updated = updated.replace(tzinfo=timezone.utc)
                     elapsed = (now - updated).total_seconds()
                     if elapsed > WATCHDOG_STUCK_THRESHOLD_SECONDS:
-                        has_subscribers = bool(thread_subscribers.get(thread["id"]))
+                        thread_id = thread["id"]
+                        has_subscribers = bool(thread_subscribers.get(thread_id))
                         logger.warning(
-                            f"[WATCHDOG] Thread {thread['id']} ({thread['title']!r}) "
+                            f"[WATCHDOG] Recovering thread {thread_id} ({thread['title']!r}) "
                             f"stuck in '{status}' for {int(elapsed)}s, "
                             f"subscribers={has_subscribers}"
                         )
+
+                        # Actively recover: set to needs_attention
+                        update_thread_status(thread_id, "needs_attention")
+
+                        # Broadcast error to SSE subscribers so UI updates
+                        await broadcast_to_thread(thread_id, {
+                            "type": "error",
+                            "data": {"error": f"Process appears to have died (stuck in '{status}' for {int(elapsed)}s). You can retry by sending a new message."},
+                        })
+                        await broadcast_to_thread(thread_id, {
+                            "type": "status_change",
+                            "data": {"status": "needs_attention"},
+                        })
+
+                        # Notify parent if this is a sub-thread
+                        parent_id = thread.get("parentId")
+                        if parent_id:
+                            await _notify_parent_of_stuck_child(parent_id, thread)
+
                 except (ValueError, TypeError):
                     pass
         except asyncio.CancelledError:
             return
         except Exception as e:
             logger.debug(f"[WATCHDOG] Error during check: {e}")
+
+
+async def _notify_parent_of_stuck_child(parent_id: str, child_thread: dict[str, Any]) -> None:
+    """Notify parent thread that a child thread appears stuck/dead.
+
+    Broadcasts a subthread_status event and injects a notification message
+    so the parent agent (on next activation) knows the child failed.
+    """
+    child_id = child_thread["id"]
+    child_title = child_thread.get("title", "Unknown")
+
+    # Broadcast status event to parent's SSE subscribers
+    await broadcast_to_thread(parent_id, {
+        "type": "subthread_status",
+        "data": {
+            "threadId": child_id,
+            "status": "needs_attention",
+            "title": child_title,
+        },
+    })
+
+    # Inject notification message into parent thread
+    notification_content = (
+        f'[notification] Sub-thread "{child_title}" appears to have crashed '
+        f"or timed out. It has been marked as needing attention. "
+        f"You can retry by sending a message to it."
+    )
+    user_notification = add_message(parent_id, "user", notification_content)
+    await broadcast_to_thread(parent_id, {
+        "type": "message",
+        "data": {"message": user_notification},
+    })
 
 
 @asynccontextmanager
@@ -305,6 +366,11 @@ async def spa_fallback_handler(request: Request, exc: HTTPException):
         status_code=404,
         content={"detail": "Not found"},
     )
+
+
+# Maximum retries when a Claude process dies mid-execution
+MAX_AGENT_RETRIES = int(os.environ.get("MAINTHREAD_MAX_RETRIES", "2"))
+RETRY_DELAY_SECONDS = 3
 
 
 # Shared message processing logic to reduce duplication
@@ -536,6 +602,126 @@ class MessageStreamProcessor:
     def get_content_blocks_json(self) -> str | None:
         """Get JSON-serialized content blocks."""
         return json.dumps(self.collected_blocks) if self.collected_blocks else None
+
+
+async def run_agent_with_retry(
+    thread_id: str,
+    user_message: str,
+    *,
+    images: list[dict[str, str]] | None = None,
+    broadcast_status: bool = True,
+) -> MessageStreamProcessor:
+    """Run a Claude agent with automatic retry on process death.
+
+    If the Claude process dies mid-execution, this function:
+    1. Saves whatever partial content was collected
+    2. Re-fetches the thread to get the latest session_id
+    3. Sends a continuation message to resume the conversation
+    4. Retries up to MAX_AGENT_RETRIES times
+
+    This gives MainThread the same resilience as `claude --continue` in the CLI.
+
+    Args:
+        thread_id: The thread to run
+        user_message: The user message to process
+        images: Optional images for multimodal input
+        broadcast_status: Whether to broadcast status changes via SSE
+
+    Returns:
+        The final MessageStreamProcessor with results
+    """
+    last_error: Exception | None = None
+
+    for attempt in range(MAX_AGENT_RETRIES + 1):
+        thread = get_thread(thread_id)
+        if not thread:
+            raise ValueError(f"Thread {thread_id} not found")
+
+        # On retry, send a continuation message instead of the original
+        if attempt > 0:
+            logger.info(
+                f"[RETRY] Attempt {attempt + 1}/{MAX_AGENT_RETRIES + 1} for thread {thread_id}, "
+                f"session_id={thread.get('sessionId', 'none')}"
+            )
+            await asyncio.sleep(RETRY_DELAY_SECONDS)
+
+            # Add a system note about the retry
+            retry_note = (
+                f"[system] Previous execution was interrupted ({last_error}). "
+                f"Automatically retrying with session resumption (attempt {attempt + 1})."
+            )
+            add_message(thread_id, "system", retry_note)
+            await broadcast_to_thread(thread_id, {
+                "type": "message",
+                "data": {"message": {"role": "system", "content": retry_note}},
+            })
+
+            # The continuation message tells the agent to pick up where it left off
+            effective_message = (
+                "Your previous execution was interrupted. "
+                "Please continue where you left off and complete the task."
+            )
+            effective_images = None  # Don't resend images on retry
+        else:
+            effective_message = user_message
+            effective_images = images
+
+        processor = MessageStreamProcessor(thread_id)
+
+        try:
+            if broadcast_status:
+                update_thread_status(thread_id, "running")
+                await broadcast_to_thread(thread_id, {
+                    "type": "status_change",
+                    "data": {"status": "running"},
+                })
+
+            async with asyncio.timeout(AGENT_TIMEOUT_SECONDS):
+                async for msg in run_agent(
+                    thread,
+                    effective_message,
+                    images=effective_images,
+                    allow_nested_subthreads=thread.get("allowNestedSubthreads", False),
+                    max_thread_depth=thread.get("maxThreadDepth", 1),
+                ):
+                    await processor.process_message(msg)
+
+            # Success - finalize and return
+            await processor.finalize()
+            processor._save_current_state()
+            return processor
+
+        except asyncio.CancelledError:
+            # User-initiated cancel - don't retry
+            raise
+
+        except TimeoutError:
+            # Timeout - don't retry (already waited long enough)
+            processor._save_current_state()
+            raise
+
+        except Exception as e:
+            last_error = e
+            processor._save_current_state()
+
+            if attempt < MAX_AGENT_RETRIES:
+                logger.warning(
+                    f"[RETRY] Agent process died in thread {thread_id} "
+                    f"(attempt {attempt + 1}): {e}. Will retry with session resumption."
+                )
+                # Save session_id if we got one before the crash
+                if processor.final_session_id:
+                    update_thread_session(thread_id, processor.final_session_id)
+                continue
+            else:
+                # Out of retries
+                logger.error(
+                    f"[RETRY] All {MAX_AGENT_RETRIES + 1} attempts failed for thread {thread_id}: {e}"
+                )
+                raise
+
+    # Should never reach here, but satisfy type checker
+    raise RuntimeError("Unexpected: retry loop completed without return or raise")
 
 
 # Callback implementations for agents module
@@ -834,23 +1020,12 @@ async def _notification_worker(thread_id: str) -> None:
             # Don't add message - it's already added by the caller
             update_thread_status(thread_id, "pending")
 
-            # Use shared message processor
-            processor = MessageStreamProcessor(thread_id)
-
             async with _agent_semaphore:
-                update_thread_status(thread_id, "running")
-                await broadcast_to_thread(thread_id, {"type": "status_change", "data": {"status": "running"}})
-                async with asyncio.timeout(300):
-                    async for msg in run_agent(
-                        thread,
-                        notification_content,
-                        allow_nested_subthreads=thread.get("allowNestedSubthreads", False),
-                        max_thread_depth=thread.get("maxThreadDepth", 1),
-                    ):
-                        await processor.process_message(msg)
-
-            await processor.finalize()
-            processor._save_current_state()  # Persist finalize changes (tool completions)
+                processor = await run_agent_with_retry(
+                    thread_id,
+                    notification_content,
+                    broadcast_status=True,
+                )
 
             assistant_message = processor._message
 
@@ -870,7 +1045,7 @@ async def _notification_worker(thread_id: str) -> None:
             update_thread_status(thread_id, "needs_attention")
             await broadcast_to_thread(thread_id, {
                 "type": "error",
-                "data": {"error": "Request timed out after 5 minutes"},
+                "data": {"error": f"Request timed out after {AGENT_TIMEOUT_SECONDS // 60} minutes"},
             })
 
         except Exception as e:
@@ -913,9 +1088,6 @@ async def run_thread_for_agent(thread_id: str, message: str, skip_add_message: b
         register_task(thread_id, current_task)
 
     try:
-        # Use shared message processor
-        processor = MessageStreamProcessor(thread_id)
-
         # Notify frontend if waiting for semaphore slot
         await broadcast_to_thread(thread_id, {
             "type": "queue_waiting",
@@ -926,19 +1098,11 @@ async def run_thread_for_agent(thread_id: str, message: str, skip_add_message: b
                 "type": "queue_acquired",
                 "data": {},
             })
-            update_thread_status(thread_id, "running")
-            await broadcast_to_thread(thread_id, {"type": "status_change", "data": {"status": "running"}})
-            async with asyncio.timeout(300):  # 5 minute timeout
-                async for msg in run_agent(
-                    thread,
-                    message,
-                    allow_nested_subthreads=thread.get("allowNestedSubthreads", False),
-                    max_thread_depth=thread.get("maxThreadDepth", 1),
-                ):
-                    await processor.process_message(msg)
-
-        await processor.finalize()
-        processor._save_current_state()  # Persist finalize changes (tool completions)
+            processor = await run_agent_with_retry(
+                thread_id,
+                message,
+                broadcast_status=True,
+            )
 
         assistant_message = processor._message
 
@@ -948,7 +1112,9 @@ async def run_thread_for_agent(thread_id: str, message: str, skip_add_message: b
             update_thread_session(thread_id, processor.final_session_id)
 
         # Handle sub-thread completion signals (auto-signal if agent didn't call SignalStatus)
-        await notify_parent_of_subthread_completion(thread, thread_id, processor.final_status)
+        thread = get_thread(thread_id)  # Re-fetch for latest state
+        if thread:
+            await notify_parent_of_subthread_completion(thread, thread_id, processor.final_status)
 
         # Notify subscribers of completion
         await broadcast_to_thread(thread_id, {
@@ -969,8 +1135,12 @@ async def run_thread_for_agent(thread_id: str, message: str, skip_add_message: b
         update_thread_status(thread_id, "needs_attention")
         await broadcast_to_thread(thread_id, {
             "type": "error",
-            "data": {"error": "Request timed out after 5 minutes"},
+            "data": {"error": f"Request timed out after {AGENT_TIMEOUT_SECONDS // 60} minutes"},
         })
+        # Notify parent so it knows the sub-thread failed
+        thread = get_thread(thread_id)
+        if thread:
+            await _notify_parent_on_subthread_error(thread, thread_id, f"timed out after {AGENT_TIMEOUT_SECONDS // 60} minutes")
 
     except Exception as e:
         error_msg = str(e) or type(e).__name__
@@ -980,9 +1150,58 @@ async def run_thread_for_agent(thread_id: str, message: str, skip_add_message: b
             "type": "error",
             "data": {"error": error_msg},
         })
+        # Notify parent so it knows the sub-thread failed
+        thread = get_thread(thread_id)
+        if thread:
+            await _notify_parent_on_subthread_error(thread, thread_id, error_msg)
 
     finally:
         unregister_task(thread_id)
+
+
+async def _notify_parent_on_subthread_error(
+    thread: dict[str, Any],
+    thread_id: str,
+    error_msg: str,
+) -> None:
+    """Notify parent thread when a sub-thread encounters an error.
+
+    This ensures the parent always knows when a child fails, even on crashes/timeouts.
+    Without this, a parent can hang forever waiting for a SignalStatus that never comes.
+    """
+    parent_id = thread.get("parentId")
+    if not parent_id:
+        return
+
+    # Broadcast subthread_status event to parent's SSE subscribers
+    await broadcast_to_thread(parent_id, {
+        "type": "subthread_status",
+        "data": {
+            "threadId": thread_id,
+            "status": "needs_attention",
+            "title": thread.get("title", "Unknown"),
+        },
+    })
+
+    # Inject notification message into parent so agent sees it on next activation
+    notification_content = (
+        f'[notification] Sub-thread "{thread.get("title", "Unknown")}" encountered an error: '
+        f"{error_msg}. You may need to retry or handle this manually."
+    )
+    user_notification = add_message(parent_id, "user", notification_content)
+    await broadcast_to_thread(parent_id, {
+        "type": "message",
+        "data": {"message": user_notification},
+    })
+
+    # Trigger parent auto-react if enabled
+    parent_thread = get_thread(parent_id)
+    if parent_thread and parent_thread.get("autoReact", True):
+        task = asyncio.create_task(run_parent_thread_notification(parent_id, notification_content))
+        task.add_done_callback(
+            lambda t: logger.error(f"Parent error notification task failed for {parent_id}: {t.exception()}")
+            if t.exception() else None
+        )
 
 
 async def broadcast_subagent_stop_to_thread(thread_id: str, event_data: dict[str, Any]) -> None:
@@ -2039,24 +2258,13 @@ async def send_message(thread_id: str, request: SendMessageRequest) -> dict[str,
         register_task(thread_id, current_task)
 
     try:
-        # Use shared message processor
-        processor = MessageStreamProcessor(thread_id)
-
         async with _agent_semaphore:
-            update_thread_status(thread_id, "running")
-            await broadcast_to_thread(thread_id, {"type": "status_change", "data": {"status": "running"}})
-            async with asyncio.timeout(300):  # 5 minute timeout
-                async for msg in run_agent(
-                    thread,
-                    message_content,
-                    images=images,
-                    allow_nested_subthreads=thread.get("allowNestedSubthreads", False),
-                    max_thread_depth=thread.get("maxThreadDepth", 1),
-                ):
-                    await processor.process_message(msg)
-
-        await processor.finalize()
-        processor._save_current_state()  # Persist finalize changes (tool completions)
+            processor = await run_agent_with_retry(
+                thread_id,
+                message_content,
+                images=images,
+                broadcast_status=True,
+            )
 
         assistant_message = processor._message
 
@@ -2066,7 +2274,9 @@ async def send_message(thread_id: str, request: SendMessageRequest) -> dict[str,
             update_thread_session(thread_id, processor.final_session_id)
 
         # Handle sub-thread completion signals (auto-signal if agent didn't call SignalStatus)
-        await notify_parent_of_subthread_completion(thread, thread_id, processor.final_status)
+        thread = get_thread(thread_id)  # Re-fetch for latest state
+        if thread:
+            await notify_parent_of_subthread_completion(thread, thread_id, processor.final_status)
 
         # Notify subscribers of completion (single source of truth for messages)
         await broadcast_to_thread(thread_id, {
@@ -2094,7 +2304,7 @@ async def send_message(thread_id: str, request: SendMessageRequest) -> dict[str,
         update_thread_status(thread_id, "needs_attention")
         await broadcast_to_thread(thread_id, {
             "type": "error",
-            "data": {"error": "Request timed out after 5 minutes"},
+            "data": {"error": f"Request timed out after {AGENT_TIMEOUT_SECONDS // 60} minutes"},
         })
         raise HTTPException(status_code=504, detail="Agent execution timed out")
 

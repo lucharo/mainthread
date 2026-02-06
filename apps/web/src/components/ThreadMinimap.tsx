@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, useRef } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { Thread } from '../store/threadStore';
 
 interface ThreadMinimapProps {
@@ -32,7 +32,7 @@ function getColor(status: string): string {
 }
 
 function buildTree(threads: Thread[]): TreeNode[] {
-  const visible = threads.filter((t) => !t.archivedAt);
+  const visible = threads.filter((t) => !t.archivedAt && !t.isEphemeral);
   const byParent = new Map<string | null, Thread[]>();
   for (const t of visible) {
     const key = t.parentId ?? null;
@@ -214,11 +214,21 @@ function DotNode({
   );
 }
 
+const LEGEND_ITEMS: { label: string; color: string }[] = [
+  { label: 'Active', color: STATUS_COLORS.active },
+  { label: 'Running', color: STATUS_COLORS.running },
+  { label: 'Pending', color: STATUS_COLORS.pending },
+  { label: 'Done', color: STATUS_COLORS.done },
+];
+
 export function ThreadMinimap({ threads, activeThreadId, onNavigate }: ThreadMinimapProps) {
   const [tooltip, setTooltip] = useState<string | null>(null);
+  const [showLegend, setShowLegend] = useState(false);
 
   const tree = useMemo(() => buildTree(threads), [threads]);
   const { nodes, w, h } = useMemo(() => layoutTree(tree), [tree]);
+
+  const handleLegendToggle = useCallback(() => setShowLegend((v) => !v), []);
 
   if (nodes.length === 0) return null;
 
@@ -227,14 +237,14 @@ export function ThreadMinimap({ threads, activeThreadId, onNavigate }: ThreadMin
 
   return (
     <div
-      className="fixed bottom-4 right-4 z-20 bg-background/90 backdrop-blur-sm border border-border rounded-lg shadow-lg"
-      style={{ maxWidth: 260, maxHeight: 200, overflow: 'visible' }}
+      className="absolute bottom-4 right-4 z-20 bg-background/90 backdrop-blur-sm border border-border rounded-lg shadow-lg"
+      style={{ maxWidth: 260, overflow: 'visible' }}
     >
       <svg
         width={svgW}
         height={svgH}
         viewBox={`0 0 ${svgW} ${svgH}`}
-        className="text-foreground"
+        className="text-foreground mx-auto block"
         style={{ overflow: 'visible' }}
       >
         {nodes.map((node) => (
@@ -248,6 +258,28 @@ export function ThreadMinimap({ threads, activeThreadId, onNavigate }: ThreadMin
           />
         ))}
       </svg>
+      {/* Legend toggle + panel */}
+      <div className="border-t border-border px-2 py-1">
+        <button
+          onClick={handleLegendToggle}
+          className="text-[10px] text-muted-foreground hover:text-foreground w-full text-left"
+        >
+          {showLegend ? 'Hide legend' : 'See legend'}
+        </button>
+        {showLegend && (
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 pb-0.5">
+            {LEGEND_ITEMS.map((item) => (
+              <span key={item.label} className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                <span
+                  className="inline-block w-2 h-2 rounded-full"
+                  style={{ backgroundColor: item.color }}
+                />
+                {item.label}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
