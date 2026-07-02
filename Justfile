@@ -5,7 +5,7 @@ default:
 
 # Install all dependencies
 install:
-    uv sync
+    uv sync --extra dev
     pnpm install
 
 # Run backend + frontend dev servers in parallel
