@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Bump certifi to 2026.10.23, which drops the distrusted emSign root (eMudhra intermediates had trivially weak keys)
+
 ## [0.1.0] - 2026-02-06
 
 ### Added
